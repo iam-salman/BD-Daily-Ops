@@ -1,0 +1,299 @@
+{
+  "entities": {
+    "StationDailySwap": {
+      "title": "Station Daily Swap",
+      "description": "Aggregated daily swap statistics for a station",
+      "type": "object",
+      "properties": {
+        "stationId": { "type": "string", "description": "The unique ID of the station" },
+        "stationName": { "type": "string", "description": "The name of the station" },
+        "date": { "type": "string", "format": "date", "description": "The date in YYYY-MM-DD format" },
+        "swapCount": { "type": "integer", "description": "Total number of swaps on this date" },
+        "peakHourlySwaps": { "type": "integer", "description": "Maximum number of swaps in any single hour on this date" }
+      },
+      "required": ["stationId", "stationName", "date", "swapCount", "peakHourlySwaps"]
+    },
+    "BatteryIssue": {
+      "title": "Battery Issue",
+      "description": "A reported issue for a specific battery",
+      "type": "object",
+      "properties": {
+        "batteryId": { "type": "string" },
+        "stationId": { "type": "string" },
+        "mainDescription": { "type": "string" },
+        "subDescription": { "type": "string" },
+        "occurrenceCount": { "type": "integer" },
+        "occurrenceDates": { "type": "array", "items": { "type": "string" } },
+        "issueType": { "type": "string" },
+        "raisedBy": { "type": "string" },
+        "raisedByName": { "type": "string" },
+        "raisedByRole": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "lastOccurrenceAt": { "type": "string" },
+        "status": { "type": "string", "enum": ["Open", "Closed"] },
+        "currentLocationContext": { "type": "string" },
+        "resolvedAt": { "type": "string" },
+        "actionTaken": { "type": "string" },
+        "resolutionDate": { "type": "string" }
+      },
+      "required": ["batteryId", "mainDescription", "occurrenceCount", "occurrenceDates", "status"]
+    },
+    "InventoryItemMaster": {
+      "title": "Inventory Item Master",
+      "description": "Definition of an inventory item type",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "category": { "type": "string" },
+        "unit": { "type": "string" }
+      },
+      "required": ["name", "category"]
+    },
+    "StationInventory": {
+      "title": "Station Inventory",
+      "description": "Current count of an item at a station",
+      "type": "object",
+      "properties": {
+        "stationId": { "type": "string" },
+        "itemId": { "type": "string" },
+        "count": { "type": "integer" },
+        "lastUpdated": { "type": "string" }
+      },
+      "required": ["stationId", "itemId", "count"]
+    },
+    "InventoryReport": {
+      "title": "Inventory Report",
+      "description": "Daily inventory verification report",
+      "type": "object",
+      "properties": {
+        "stationId": { "type": "string" },
+        "date": { "type": "string" },
+        "items": { "type": "array" },
+        "submittedBy": { "type": "string" },
+        "timestamp": { "type": "string" }
+      },
+      "required": ["stationId", "date", "items", "submittedBy"]
+    },
+    "InventoryTransfer": {
+      "title": "Inventory Transfer",
+      "description": "Log of item movement between stations",
+      "type": "object",
+      "properties": {
+        "fromStationId": { "type": "string" },
+        "toStationId": { "type": "string" },
+        "itemId": { "type": "string" },
+        "quantity": { "type": "integer" },
+        "timestamp": { "type": "string" },
+        "user": { "type": "string" }
+      },
+      "required": ["fromStationId", "toStationId", "itemId", "quantity", "timestamp"]
+    },
+    "Driver": {
+      "title": "Driver",
+      "description": "Driver information synced from Kazam",
+      "type": "object",
+      "properties": {
+        "driver_id": { "type": "string" },
+        "name": { "type": "string" },
+        "phone": { "type": "string" },
+        "is_active": { "type": "boolean" },
+        "onboardingStatus": { "type": "string" },
+        "onboarded_on": { "type": "integer" },
+        "kyc_status": { "type": "boolean" },
+        "planData": { "type": "array" },
+        "vehicleData": { "type": "array" },
+        "last_swap_date": { "type": "integer" },
+        "assigned": { "type": "boolean" },
+        "last_synced_at": { "type": "string" }
+      },
+      "required": ["driver_id", "name"]
+    },
+    "SwapStation": {
+      "title": "Swap Station",
+      "description": "Station information synced from Kazam",
+      "type": "object",
+      "properties": {
+        "dealer_id": { "type": "string" },
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "location": { "type": "array", "items": { "type": "number" } },
+        "last_synced_at": { "type": "string" }
+      },
+      "required": ["dealer_id", "id", "name", "location"]
+    },
+    "Ticket": {
+      "title": "Support Ticket",
+      "description": "A customer support ticket for a driver",
+      "type": "object",
+      "properties": {
+        "driverId": { "type": "string" },
+        "driverName": { "type": "string" },
+        "driverPhone": { "type": "string" },
+        "vehicleNumber": { "type": "string" },
+        "category": { "type": "string" },
+        "subCategory": { "type": "string" },
+        "message": { "type": "string" },
+        "technicianId": { "type": "string" },
+        "technicianName": { "type": "string" },
+        "status": { "type": "string", "enum": ["Open", "Initiated Close", "Closed", "Pending Admin"] },
+        "createdAt": { "type": "string" },
+        "createdBy": { "type": "string" },
+        "createdByName": { "type": "string" },
+        "compensationInfo": {
+          "type": "object",
+          "properties": {
+            "type": { "type": "string", "enum": ["Half", "Free", "Acc to Left"] },
+            "status": { "type": "string", "enum": ["Pending", "Given"] },
+            "requestedAt": { "type": "string" },
+            "requestedBy": { "type": "string" }
+          }
+        },
+        "technicianClosingInfo": {
+          "type": "object",
+          "properties": {
+            "issueDescription": { "type": "string" },
+            "issueResolved": { "type": "string", "enum": ["Yes", "No", "Issue is not our side"] },
+            "itemsReplaced": { "type": "array", "items": { "type": "string" } },
+            "charges": {
+              "type": "object",
+              "properties": {
+                "cash": { "type": "number" },
+                "upi": { "type": "number" }
+              }
+            },
+            "initiatedAt": { "type": "string" }
+          }
+        },
+        "adminClosingInfo": {
+          "type": "object",
+          "properties": {
+            "description": { "type": "string" },
+            "compensation": { "type": "number" },
+            "closedAt": { "type": "string" },
+            "closedBy": { "type": "string" }
+          }
+        }
+      },
+      "required": ["driverId", "category", "status", "createdAt", "createdBy"]
+    },
+    "AlertLog": {
+      "title": "Alert Log",
+      "description": "Log of calls made to drivers for alerts",
+      "type": "object",
+      "properties": {
+        "driverId": { "type": "string" },
+        "driverName": { "type": "string" },
+        "alertType": { "type": "string", "enum": ["Ticket", "Swap"] },
+        "status": { "type": "string", "enum": ["Picked", "Not Picked"] },
+        "message": { "type": "string" },
+        "timestamp": { "type": "string" },
+        "user": { "type": "string" }
+      },
+      "required": ["driverId", "alertType", "status", "timestamp", "user"]
+    },
+    "IDCardHandoverRequest": {
+      "title": "ID Card Handover Request",
+      "description": "A request to handover a driver ID card to another employee",
+      "type": "object",
+      "properties": {
+        "cardId": { "type": "string" },
+        "fromId": { "type": "string" },
+        "fromName": { "type": "string" },
+        "toId": { "type": "string" },
+        "toName": { "type": "string" },
+        "pin": { "type": "string" },
+        "status": { "type": "string", "enum": ["Pending", "Completed", "Cancelled"] },
+        "timestamp": { "type": "string" }
+      },
+      "required": ["cardId", "fromId", "toId", "pin", "status", "timestamp"]
+    },
+    "DriverMasterRecord": {
+      "title": "Driver Master Record",
+      "description": "Extended driver data managed within the app",
+      "type": "object",
+      "properties": {
+        "additional_phones": { "type": "array", "items": { "type": "string" } },
+        "onboarding": { "type": "object" },
+        "id_card": { "type": "object" },
+        "gift_kit": { "type": "object" },
+        "status_info": { "type": "object" },
+        "follow_up": { "type": "object" },
+        "kit_recovery": { "type": "object" },
+        "vehicle_specs": { "type": "object" },
+        "agreement_handed_over": { "type": "boolean" }
+      }
+    },
+    "CashCollection": {
+      "title": "Cash Collection",
+      "description": "Recording of daily cash collection from stations",
+      "type": "object",
+      "properties": {
+        "stationId": { "type": "string" },
+        "stationName": { "type": "string" },
+        "operatorId": { "type": "string" },
+        "operatorName": { "type": "string" },
+        "collectedBy": { "type": "string" },
+        "collectedByName": { "type": "string" },
+        "denominations": { "type": "object" },
+        "totalAmount": { "type": "number" },
+        "date": { "type": "string", "format": "date" },
+        "timestamp": { "type": "string" }
+      },
+      "required": ["stationId", "operatorId", "denominations", "totalAmount", "date", "timestamp"]
+    }
+  },
+  "firestore": {
+    "/station_daily_swaps/{statId}": {
+      "schema": "StationDailySwap",
+      "description": "Collection of daily swap statistics for capacity planning"
+    },
+    "/battery_issues/{issueId}": {
+      "schema": "BatteryIssue",
+      "description": "Collection of reported battery issues"
+    },
+    "/inventory_items_master/{itemId}": {
+      "schema": "InventoryItemMaster",
+      "description": "Master list of inventory item types"
+    },
+    "/station_inventory/{invId}": {
+      "schema": "StationInventory",
+      "description": "Current inventory counts per station"
+    },
+    "/inventory_reports/{reportId}": {
+      "schema": "InventoryReport",
+      "description": "Daily inventory verification reports"
+    },
+    "/inventory_transfers/{transferId}": {
+      "schema": "InventoryTransfer",
+      "description": "Logs of inventory movements"
+    },
+    "/drivers/{driverId}": {
+      "schema": "Driver",
+      "description": "Collection of drivers synced from Kazam"
+    },
+    "/drivers_master/{driverId}": {
+      "schema": "DriverMasterRecord",
+      "description": "Extended driver data managed within the app"
+    },
+    "/swap_stations/{stationId}": {
+      "schema": "SwapStation",
+      "description": "Collection of swap stations synced from Kazam"
+    },
+    "/tickets/{ticketId}": {
+      "schema": "Ticket",
+      "description": "Collection of support tickets"
+    },
+    "/alert_logs/{logId}": {
+      "schema": "AlertLog",
+      "description": "Logs of interactions with drivers regarding alerts"
+    },
+    "/id_card_handovers/{requestId}": {
+      "schema": "IDCardHandoverRequest",
+      "description": "Collection of ID card handover requests between employees"
+    },
+    "/cash_collections/{collectionId}": {
+      "schema": "CashCollection",
+      "description": "Daily cash collections from stations recorded by admins"
+    }
+  }
+}

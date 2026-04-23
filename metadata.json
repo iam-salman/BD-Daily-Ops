@@ -1,0 +1,5 @@
+{
+  "name": "Bd Ops: Daily Ops",
+  "description": "A high-contrast, professional battery swapping station management dashboard for BD Ops, featuring smart algorithm insights, real-time battery monitoring, and role-based operational workflows.",
+  "requestFramePermissions": ["camera"]
+}
