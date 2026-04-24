@@ -76,7 +76,6 @@ const UserManagement: React.FC<UserManagementProps> = ({ isDarkMode, db }) => {
   const [users, setUsers] = useState<ManagedUser[]>([]);
   const [loading, setLoading] = useState(true);
   const [inviteEmail, setInviteEmail] = useState('');
-  const [inviteName, setInviteName] = useState('');
   const [inviteRole, setInviteRole] = useState<UserRole>(UserRole.SUPPORT_EXECUTIVE);
   const [showInviteForm, setShowInviteForm] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -129,7 +128,6 @@ const UserManagement: React.FC<UserManagementProps> = ({ isDarkMode, db }) => {
     try {
       const newUserData = {
         email: emailKey,
-        name: inviteName.trim(),
         role: inviteRole,
         status: 'Pending',
         invitedAt: new Date().toISOString()
@@ -139,7 +137,6 @@ const UserManagement: React.FC<UserManagementProps> = ({ isDarkMode, db }) => {
 
       setLastInvitedEmail(emailKey);
       setInviteEmail('');
-      setInviteName('');
       setSuccessMsg(`Access granted for ${emailKey}. Notify the user to log in.`);
       setShowInviteForm(false);
     } catch (err: any) {
@@ -164,9 +161,9 @@ const UserManagement: React.FC<UserManagementProps> = ({ isDarkMode, db }) => {
 
   const sendInviteEmail = (email: string) => {
     const link = getInviteLink();
-    const subject = encodeURIComponent("Access Authorized: BD Ops Dashboard");
+    const subject = encodeURIComponent("Setup Your BD Ops Account");
     const body = encodeURIComponent(
-      `Hello,\n\nYou have been authorized as a ${inviteRole} on the BD Ops Dashboard.\n\nYou can now log in and setup your account using your Google/Gmail account at this link:\n${link}\n\nBest regards,\nOperations Team`
+      `Hello,\n\nYou have been authorized as a ${inviteRole} on the BD Ops Dashboard.\n\nPlease complete your account setup and set your password at the link below:\n\n${link}\n\nSteps to setup:\n1. Click "Invited by admin? Setup Account" at the bottom of the login screen.\n2. Enter your email: ${email}\n3. Choose a secure password.\n4. Click "Setup My Account".\n\nBest regards,\nOperations Team`
     );
     window.location.href = `mailto:${email}?subject=${subject}&body=${body}`;
   };
@@ -278,7 +275,7 @@ const UserManagement: React.FC<UserManagementProps> = ({ isDarkMode, db }) => {
                 className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-xl text-xs font-bold hover:bg-indigo-700 transition-all shadow-md"
               >
                 <PaperAirplaneIcon className="w-4 h-4" />
-                Email User
+                Send Invite Email
               </button>
             )}
           </div>
@@ -298,22 +295,7 @@ const UserManagement: React.FC<UserManagementProps> = ({ isDarkMode, db }) => {
           <p className="text-sm text-gray-400 dark:text-slate-500 mb-8 font-semibold italic">Unauthorized users will be blocked from access.</p>
           
           <form onSubmit={handleInvite} className="space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-              <div className="space-y-2">
-                <label className="text-xs font-bold text-gray-400 dark:text-slate-500 uppercase tracking-wider ml-1">Full Name</label>
-                <div className="relative group">
-                  <UserIcon className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400 group-focus-within:text-indigo-600 transition-colors z-10" />
-                  <input 
-                    type="text" 
-                    value={inviteName}
-                    onChange={(e) => setInviteName(e.target.value)}
-                    placeholder="e.g. John Doe"
-                    disabled={isSubmitting}
-                    className="w-full pl-12 pr-4 py-4 bg-gray-50 dark:bg-dark-bg border border-transparent dark:border-dark-border rounded-2xl text-sm focus:bg-white dark:focus:bg-dark-surface focus:ring-4 focus:ring-indigo-50 dark:focus:ring-indigo-900/20 outline-none transition-all dark:text-slate-100"
-                    required
-                  />
-                </div>
-              </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               <div className="space-y-2">
                 <label className="text-xs font-bold text-gray-400 dark:text-slate-500 uppercase tracking-wider ml-1">Gmail Address</label>
                 <div className="relative group">

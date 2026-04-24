@@ -28,16 +28,25 @@ export const useAuth = () => {
           if (userDoc.exists()) {
             const userData = userDoc.data();
             assignedRole = userData.role as UserRole;
-            profileName = userData.name || '';
-            if (userData.status !== 'Active') {
-              await updateDoc(userDocRef, { status: 'Active' });
+            profileName = userData.name || currentUser.displayName || '';
+            
+            // Sync status and UID if needed
+            const updates: any = {};
+            if (userData.status !== 'Active') updates.status = 'Active';
+            if (userData.uid !== currentUser.uid) updates.uid = currentUser.uid;
+            
+            if (Object.keys(updates).length > 0) {
+              await updateDoc(userDocRef, updates);
             }
           } else if (isMasterAdmin) {
             assignedRole = UserRole.ADMIN;
+            profileName = "Master Admin";
             await setDoc(userDocRef, { 
               email: emailKey, 
               role: UserRole.ADMIN, 
               status: 'Active', 
+              uid: currentUser.uid,
+              name: profileName,
               invitedAt: new Date().toISOString() 
             });
           } else {

@@ -8,9 +8,17 @@ service cloud.firestore {
     
     function isAdmin() {
       return isAuthenticated() && 
-        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'ADMIN' ||
+        (get(/databases/$(database)/documents/users/$(request.auth.token.email.toLower())).data.role == 'ADMIN' ||
          request.auth.token.email == "ahmedpec1005@gmail.com" ||
          request.auth.token.email == "ahmed.evolt@gmail.com");
+    }
+
+    // Users
+    match /users/{email} {
+      allow read: if isAuthenticated() && request.auth.token.email.toLower() == email.toLower();
+      allow update: if isAuthenticated() && request.auth.token.email.toLower() == email.toLower() && 
+                   !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role', 'email', 'invitedAt']);
+      allow write: if isAdmin();
     }
 
     // Drivers
