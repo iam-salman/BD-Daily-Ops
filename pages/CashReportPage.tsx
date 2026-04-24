@@ -181,27 +181,25 @@ const CashReportPage: React.FC<CashReportPageProps> = ({ isDarkMode, user, role,
     });
   }, [collections, userMap]);
 
-  const availableStations = useMemo(() => {
-    const masters = (stations || []).map(s => ({ id: s.id?.trim(), name: (s.name || 'Unknown').trim() }));
-    const fromSessions = (sessionStations || []).map(s => ({ id: s.id?.trim(), name: (s.name || 'Unknown').trim() }));
-    const fromCollections = (collections || []).map(c => ({ id: c.stationId?.trim(), name: (c.stationName || 'Unknown').trim() }));
+const availableStations = useMemo(() => {
+    const masters = (stations || []).map(s => ({ id: s.id, name: s.name || 'Unknown' }));
+    const fromSessions = (sessionStations || []).map(s => ({ id: s.id, name: s.name }));
+    const fromCollections = (collections || []).map(c => ({ id: c.stationId, name: c.stationName || 'Unknown' }));
     
     const combined = [...masters, ...fromSessions, ...fromCollections];
-    const seenId = new Set();
-    const seenName = new Set();
     
-    return combined.filter(s => {
-      const nameKey = s.name.toLowerCase();
-      if (!s.id) {
-        if (seenName.has(nameKey)) return false;
-        seenName.add(nameKey);
+    // Use a Set to track NAMES to prevent visual duplicates
+    const seenNames = new Set();
+    
+    return combined
+      .filter(s => {
+        if (!s.name || s.name === 'Unknown' || seenNames.has(s.name.trim().toLowerCase())) {
+          return false;
+        }
+        seenNames.add(s.name.trim().toLowerCase());
         return true;
-      }
-      if (seenId.has(s.id)) return false;
-      seenId.add(s.id);
-      seenName.add(nameKey);
-      return true;
-    }).sort((a, b) => a.name.localeCompare(b.name));
+      })
+      .sort((a, b) => a.name.localeCompare(b.name));
   }, [stations, collections, sessionStations]);
 
   useEffect(() => {
