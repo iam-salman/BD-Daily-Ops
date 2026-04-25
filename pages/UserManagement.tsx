@@ -11,12 +11,15 @@ import {
   ClipboardIcon, 
   ChevronRightIcon, 
   ChevronLeftIcon,
-  UserIcon
+  UserIcon,
+  PencilSquareIcon,
+  XMarkIcon
 } from '@heroicons/react/24/outline';
 import { UserRole } from '../types';
 import { 
   collection, 
   onSnapshot, 
+  getDocs,
   doc, 
   setDoc, 
   deleteDoc, 
@@ -89,6 +92,10 @@ const UserManagement: React.FC<UserManagementProps> = ({ isDarkMode, db }) => {
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
   const [userDeleteConfirmId, setUserDeleteConfirmId] = useState<string | null>(null);
+
+  // Edit Modal states
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [editingUser, setEditingUser] = useState<ManagedUser | null>(null);
 
   const [totalDatabaseCount, setTotalDatabaseCount] = useState(0);
 
@@ -197,13 +204,6 @@ const UserManagement: React.FC<UserManagementProps> = ({ isDarkMode, db }) => {
       return;
     }
     
-    if (userDeleteConfirmId !== email) {
-      setUserDeleteConfirmId(email);
-      // Reset confirmation after 3 seconds
-      setTimeout(() => setUserDeleteConfirmId(null), 3000);
-      return;
-    }
-
     try {
       await deleteDoc(doc(db, "users", email));
       setSuccessMsg(`Access revoked for ${email}`);
@@ -213,6 +213,26 @@ const UserManagement: React.FC<UserManagementProps> = ({ isDarkMode, db }) => {
       console.error("Failed to revoke access:", err);
       setErrorMsg("Failed to revoke access.");
       setUserDeleteConfirmId(null);
+    }
+  };
+
+  const handleEditRole = (user: ManagedUser) => {
+    setEditingUser(user);
+    setIsEditModalOpen(true);
+  };
+
+  const saveEditedRole = async () => {
+    if (!editingUser) return;
+    try {
+      const userRef = doc(db, "users", editingUser.id);
+      await setDoc(userRef, { role: editingUser.role }, { merge: true });
+      setSuccessMsg(`Role updated for ${editingUser.email}`);
+      setIsEditModalOpen(false);
+      setEditingUser(null);
+      // Data will refresh via useEffect
+    } catch (err: any) {
+      console.error("Failed to update role:", err);
+      setErrorMsg("Failed to update role.");
     }
   };
 
@@ -439,6 +459,13 @@ const UserManagement: React.FC<UserManagementProps> = ({ isDarkMode, db }) => {
                   <td className="px-6 py-4 text-right">
                     <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                       <button 
+                        onClick={() => handleEditRole(member)}
+                        className="p-1.5 text-gray-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-white dark:hover:bg-dark-surface rounded-lg transition-all"
+                        title="Edit Role"
+                      >
+                        <PencilSquareIcon className="w-4 h-4" />
+                      </button>
+                      <button 
                         onClick={() => sendInviteEmail(member.email)}
                         className="p-1.5 text-gray-400 hover:text-green-600 dark:hover:text-green-400 hover:bg-white dark:hover:bg-dark-surface rounded-lg transition-all"
                         title="Resend Invite"
@@ -479,6 +506,50 @@ const UserManagement: React.FC<UserManagementProps> = ({ isDarkMode, db }) => {
           dataLength={totalDatabaseCount}
         />
       </div>
+
+      {/* Edit Role Modal */}
+      {isEditModalOpen && editingUser && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-zinc-900 w-full max-w-lg rounded-[2.5rem] shadow-2xl overflow-hidden border border-zinc-200 dark:border-zinc-800">
+            <div className="p-8 border-b border-zinc-100 dark:border-zinc-800 flex justify-between items-center">
+              <h3 className="text-xl font-black text-zinc-900 dark:text-white">Edit User Access</h3>
+              <button onClick={() => setIsEditModalOpen(false)} className="p-2 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-full transition-colors">
+                <XMarkIcon className="w-6 h-6 text-zinc-400" />
+              </button>
+            </div>
+            <div className="p-8 space-y-6">
+              <div className="space-y-1">
+                <label className="text-[10px] font-black text-zinc-400 uppercase tracking-widest ml-1">User Email</label>
+                <div className="px-4 py-3 bg-zinc-50 dark:bg-zinc-950 border border-zinc-100 dark:border-zinc-800 rounded-xl text-sm font-bold text-zinc-500">
+                  {editingUser.email}
+                </div>
+              </div>
+              <div className="space-y-1">
+                <label className="text-[10px] font-black text-zinc-400 uppercase tracking-widest ml-1">Access Tier</label>
+                <CustomSelect
+                  options={roleOptions}
+                  value={editingUser.role}
+                  onChange={(val) => setEditingUser({...editingUser, role: val as UserRole})}
+                />
+              </div>
+              <div className="flex gap-4 pt-4">
+                <button 
+                  onClick={() => setIsEditModalOpen(false)}
+                  className="flex-1 py-3 bg-zinc-100 dark:bg-zinc-800 text-zinc-500 rounded-xl font-bold text-sm hover:bg-zinc-200 transition-all"
+                >
+                  Cancel
+                </button>
+                <button 
+                  onClick={saveEditedRole}
+                  className="flex-1 py-3 bg-indigo-600 text-white rounded-xl font-bold text-sm hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100 dark:shadow-none"
+                >
+                  Update Role
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

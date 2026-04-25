@@ -16,9 +16,11 @@ import {
   PresentationChartLineIcon,
   ArrowPathIcon,
   FunnelIcon,
-  ArrowDownTrayIcon
+  ArrowDownTrayIcon,
+  PencilSquareIcon,
+  CheckCircleIcon
 } from '@heroicons/react/24/outline';
-import { collection, doc, onSnapshot, setDoc, addDoc, updateDoc, query, where, writeBatch, orderBy, Firestore, increment, getDocs } from "firebase/firestore";
+import { collection, doc, onSnapshot, setDoc, addDoc, updateDoc, deleteDoc, query, where, writeBatch, orderBy, Firestore, increment, getDocs } from "firebase/firestore";
 import { User } from "firebase/auth";
 import CustomSelect from '../components/CustomSelect';
 import { CustomDatePicker } from '../components/CustomDatePicker';
@@ -449,6 +451,9 @@ const InventoryPage: React.FC<InventoryPageProps> = ({ isDarkMode, db, user }) =
     commonData: {}
   });
   const [editingSchema, setEditingSchema] = useState<InventorySchema | null>(null);
+  const [editingItem, setEditingItem] = useState<InventoryItem | null>(null);
+  const [itemToDelete, setItemToDelete] = useState<InventoryItem | null>(null);
+  const [notification, setNotification] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
   const [newColumn, setNewColumn] = useState<InventoryColumn>({ key: '', label: '', type: 'text', required: false });
   const [newTypeName, setNewTypeName] = useState('');
 
@@ -516,10 +521,18 @@ const InventoryPage: React.FC<InventoryPageProps> = ({ isDarkMode, db, user }) =
       setLoading(true);
       try {
         const itemsRef = collection(db, 'inventory_items');
-        let q = query(itemsRef, where("typeId", "==", activeTypeId), orderBy("lastMoved", "desc"));
+        // Fetch only by typeId (simple query) to avoid composite index requirement
+        const q = query(itemsRef, where("typeId", "==", activeTypeId));
         const snapshot = await getDocs(q);
         
         let loadedItems = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as InventoryItem));
+
+        // Sort in memory to avoid "Query requires an index" error
+        loadedItems.sort((a, b) => {
+          const dateA = new Date(a.lastMoved || 0).getTime();
+          const dateB = new Date(b.lastMoved || 0).getTime();
+          return dateB - dateA;
+        });
 
         if (searchQuery) {
           const qStr = searchQuery.toLowerCase();
@@ -633,6 +646,42 @@ const InventoryPage: React.FC<InventoryPageProps> = ({ isDarkMode, db, user }) =
   };
 
   const handleDeleteColumnClick = (index: number) => setColumnToDelete(index);
+
+  const handleEditItem = (item: InventoryItem) => {
+    setEditingItem(JSON.parse(JSON.stringify(item)));
+    setNewItemData(JSON.parse(JSON.stringify(item.data)));
+  };
+
+  const saveItemEdit = async () => {
+    if (!editingItem) return;
+    try {
+      const itemRef = doc(db, 'inventory_items', editingItem.id);
+      await updateDoc(itemRef, {
+        data: newItemData,
+        status: editingItem.status,
+        purpose: editingItem.purpose || '',
+        lastMoved: new Date().toISOString(),
+        updatedBy: user.email || 'System'
+      });
+      setNotification({ message: 'Item updated successfully', type: 'success' });
+      setEditingItem(null);
+    } catch (error) {
+      console.error("Error updating item:", error);
+      setNotification({ message: 'Failed to update item', type: 'error' });
+    }
+  };
+
+  const handleDeleteItem = async () => {
+    if (!itemToDelete) return;
+    try {
+      await deleteDoc(doc(db, 'inventory_items', itemToDelete.id));
+      setNotification({ message: 'Item deleted successfully', type: 'success' });
+      setItemToDelete(null);
+    } catch (error) {
+      console.error("Error deleting item:", error);
+      setNotification({ message: 'Failed to delete item', type: 'error' });
+    }
+  };
 
   const confirmDeleteColumn = async () => {
     if (columnToDelete === null || !editingSchema) return;
@@ -1382,13 +1431,29 @@ const InventoryPage: React.FC<InventoryPageProps> = ({ isDarkMode, db, user }) =
                         </td>
                       ))}
                       <td className="px-6 py-4 text-right">
-                         <button 
-                           onClick={() => handleExportSingle(item)}
-                           className="p-1.5 text-zinc-400 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 rounded-lg transition-all opacity-0 group-hover:opacity-100"
-                           title="Export Item CSV"
-                         >
-                            <ArrowDownTrayIcon className="w-4 h-4" />
-                         </button>
+                        <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-all">
+                          <button 
+                            onClick={() => handleEditItem(item)}
+                            className="p-1.5 text-zinc-400 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 rounded-lg transition-all"
+                            title="Edit Item"
+                          >
+                             <PencilSquareIcon className="w-4 h-4" />
+                          </button>
+                          <button 
+                             onClick={() => setItemToDelete(item)}
+                             className="p-1.5 text-zinc-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-all"
+                             title="Delete Item"
+                          >
+                             <TrashIcon className="w-4 h-4" />
+                          </button>
+                          <button 
+                            onClick={() => handleExportSingle(item)}
+                            className="p-1.5 text-zinc-400 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 rounded-lg transition-all"
+                            title="Export Item CSV"
+                          >
+                             <ArrowDownTrayIcon className="w-4 h-4" />
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))
@@ -1958,6 +2023,122 @@ const InventoryPage: React.FC<InventoryPageProps> = ({ isDarkMode, db, user }) =
                     </button>
                 </div>
             </div>
+        </div>
+      )}
+
+      {/* Item Modals */}
+      {itemToDelete && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-zinc-900 w-full max-w-md rounded-[2.5rem] shadow-2xl overflow-hidden border border-zinc-200 dark:border-zinc-800">
+            <div className="p-8 text-center">
+              <div className="w-16 h-16 bg-red-50 dark:bg-red-900/20 rounded-2xl flex items-center justify-center mx-auto mb-6">
+                <TrashIcon className="w-8 h-8 text-red-600" />
+              </div>
+              <h3 className="text-xl font-black text-zinc-900 dark:text-white mb-2">Delete Item?</h3>
+              <p className="text-zinc-500 text-sm font-medium mb-8">
+                Are you sure you want to delete this item? This action cannot be undone.
+              </p>
+              <div className="flex gap-4">
+                <button 
+                  onClick={() => setItemToDelete(null)}
+                  className="flex-1 py-3 bg-zinc-100 dark:bg-zinc-800 text-zinc-500 rounded-xl font-bold text-sm hover:bg-zinc-200 transition-all"
+                >
+                  Cancel
+                </button>
+                <button 
+                  onClick={handleDeleteItem}
+                  className="flex-1 py-3 bg-red-600 text-white rounded-xl font-bold text-sm hover:bg-red-700 transition-all shadow-lg shadow-red-100 dark:shadow-none"
+                >
+                  Delete
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {editingItem && activeSchema && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-in fade-in duration-200 overflow-y-auto">
+          <div className="bg-white dark:bg-zinc-900 w-full max-w-2xl rounded-[2.5rem] shadow-2xl overflow-hidden border border-zinc-200 dark:border-zinc-800 my-8">
+            <div className="p-8 border-b border-zinc-100 dark:border-zinc-800 flex justify-between items-center">
+              <h3 className="text-xl font-black text-zinc-900 dark:text-white">Edit: {activeSchema.label}</h3>
+              <button onClick={() => setEditingItem(null)} className="p-2 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-full transition-colors">
+                <XMarkIcon className="w-6 h-6 text-zinc-400" />
+              </button>
+            </div>
+            
+            <div className="p-8 grid grid-cols-1 md:grid-cols-2 gap-6 max-h-[60vh] overflow-y-auto scrollbar-thin scrollbar-thumb-zinc-200 dark:scrollbar-thumb-zinc-800">
+               <div className="space-y-2">
+                  <label className="text-[10px] font-black text-zinc-400 uppercase tracking-widest ml-1">Current Status</label>
+                  <CustomSelect
+                     options={[
+                        { value: 'in stock', label: 'In Stock' },
+                        { value: 'in use', label: 'In Use' },
+                        { value: 'repair', label: 'Repair' },
+                        { value: 'other', label: 'Other' }
+                     ]}
+                     value={editingItem.status}
+                     onChange={(val) => setEditingItem({...editingItem, status: val as any})}
+                  />
+               </div>
+               <div className="space-y-2">
+                  <label className="text-[10px] font-black text-zinc-400 uppercase tracking-widest ml-1">Purpose / Note</label>
+                  <input 
+                    type="text" 
+                    value={editingItem.purpose || ''}
+                    onChange={(e) => setEditingItem({...editingItem, purpose: e.target.value})}
+                    className="w-full px-4 py-3 bg-zinc-50 dark:bg-zinc-950 border border-zinc-100 dark:border-zinc-800 rounded-xl text-sm font-bold outline-none focus:ring-2 focus:ring-indigo-500/20 dark:text-white"
+                  />
+               </div>
+               
+               {activeSchema.columns.map(col => (
+                  <div key={col.key} className="space-y-2">
+                     <label className="text-[10px] font-black text-zinc-400 uppercase tracking-widest ml-1">{col.label}</label>
+                     {col.type === 'select' ? (
+                        <CustomSelect
+                           options={col.options?.map(o => ({ value: o, label: o })) || []}
+                           value={newItemData[col.key] || ''}
+                           onChange={(val) => setNewItemData({...newItemData, [col.key]: val})}
+                        />
+                     ) : (
+                        <input 
+                           type={col.type === 'number' ? 'number' : 'text'}
+                           value={newItemData[col.key] || ''}
+                           onChange={(e) => setNewItemData({...newItemData, [col.key]: e.target.value})}
+                           className="w-full px-4 py-3 bg-zinc-50 dark:bg-zinc-950 border border-zinc-100 dark:border-zinc-800 rounded-xl text-sm font-bold outline-none focus:ring-2 focus:ring-indigo-500/20 dark:text-white"
+                        />
+                     )}
+                  </div>
+               ))}
+            </div>
+
+            <div className="p-8 bg-zinc-50 dark:bg-zinc-900 border-t border-zinc-100 dark:border-zinc-800 flex gap-4">
+              <button 
+                onClick={() => setEditingItem(null)}
+                className="flex-1 py-4 bg-white dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400 rounded-2xl font-bold text-sm hover:bg-zinc-100 dark:hover:bg-zinc-700 transition-all border border-zinc-200 dark:border-zinc-700"
+              >
+                Cancel
+              </button>
+              <button 
+                onClick={saveItemEdit}
+                className="flex-1 py-4 bg-indigo-600 text-white rounded-2xl font-bold text-sm hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100 dark:shadow-none"
+              >
+                Save Changes
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {notification && (
+        <div className={`fixed top-4 right-4 z-[110] px-6 py-3 rounded-2xl shadow-xl animate-in slide-in-from-right-4 duration-300 ${notification.type === 'success' ? 'bg-emerald-600 text-white' : 'bg-red-600 text-white'}`}>
+          <div className="flex items-center gap-3">
+            {notification.type === 'success' ? <CheckCircleIcon className="w-5 h-5 text-white" /> : <ExclamationTriangleIcon className="w-5 h-5 text-white" />}
+            <span className="font-bold text-sm">{notification.message}</span>
+            <button onClick={() => setNotification(null)} className="ml-2 hover:opacity-70">
+              <XMarkIcon className="w-4 h-4 text-white" />
+            </button>
+          </div>
         </div>
       )}
 

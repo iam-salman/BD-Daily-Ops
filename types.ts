@@ -57,6 +57,7 @@ export interface Battery {
 // --- Driver Interfaces ---
 
 export interface Driver {
+  id?: string;
   driver_id: string;
   name: string;
   phone: string;
@@ -276,6 +277,7 @@ export interface Station {
   dealer_id: string;
   name: string;
   location: [number, number]; // [lat, lng]
+  location_url?: string;
   last_synced_at?: string;
 }
 

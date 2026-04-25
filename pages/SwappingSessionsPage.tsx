@@ -172,35 +172,15 @@ const SwappingSessionsPage: React.FC = () => {
   const [hasMore, setHasMore] = useState(false);
 
   const fetchSessions = async () => {
+    // Swapping sessions are now treated as manual data only.
+    // We no longer fetch them from Firestore.
     setLoading(true);
     try {
-      const sessionsRef = collection(db, 'swapping_sessions');
-      const q = firestoreQuery(sessionsRef, firestoreOrderBy('timestamp', 'desc'));
-      const snapshot = await getDocs(q);
-      
-      let allSessions = snapshot.docs.map(doc => ({ _id: doc.id, ...doc.data() } as SwappingSession));
-
-      if (searchQuery) {
-        const qStr = searchQuery.toLowerCase();
-        allSessions = allSessions.filter(s => 
-          s.txn_id.toLowerCase().includes(qStr) ||
-          s.payer_id.toLowerCase().includes(qStr) ||
-          s.vehicle_number.toLowerCase().includes(qStr) ||
-          (s.driverData?.phone || '').includes(qStr) ||
-          (s.driverData?.name || '').toLowerCase().includes(qStr)
-        );
-      }
-
-      setTotalDatabaseCount(allSessions.length);
-      const totalPagesCount = Math.ceil(allSessions.length / itemsPerPage);
-      
-      const startIndex = (currentPage - 1) * itemsPerPage;
-      const paginatedData = allSessions.slice(startIndex, startIndex + itemsPerPage);
-
-      setSessions(paginatedData);
-      setHasMore(currentPage < totalPagesCount);
+      setSessions([]);
+      setTotalDatabaseCount(0);
+      setHasMore(false);
     } catch (err) {
-      console.error("Error fetching sessions:", err);
+      console.error("Error clearing sessions:", err);
     } finally {
       setLoading(false);
     }
@@ -744,20 +724,13 @@ const SwappingSessionsPage: React.FC = () => {
                 <div className="grid grid-cols-2 sm:flex items-center gap-3 w-full md:w-auto pr-10 md:pr-0">
                   <button 
                     onClick={() => {
-                      const reportData = reportStationFilter.map(station => {
-                        let stationSessions = sessions.filter(s => s.dealer_name === station);
-                        if (reportPayMode !== 'all') stationSessions = stationSessions.filter(s => s.mode === reportPayMode);
-                        const swapTotal = stationSessions.reduce((acc, s) => acc + s.amount, 0);
-                        const penaltyTotal = stationSessions.reduce((acc, s) => acc + (s.penalty_paid_amount || s.total_penalty_paid || 0), 0);
-                        return { swapTotal, penaltyTotal };
-                      });
-                      handleCreateSnapshot(reportData);
+                      alert("Snapshot creation from manual data is disabled as requested.");
                     }}
                     disabled={isCreatingSnapshot}
                     className="flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-indigo-600 text-white font-bold text-sm hover:bg-indigo-700 transition-all shadow-md shadow-indigo-100 dark:shadow-none disabled:opacity-50 active:scale-95"
                   >
                     <ArrowPathIcon className={`w-4 h-4 ${isCreatingSnapshot ? 'animate-spin' : ''}`} />
-                    <span className="hidden sm:inline">{isCreatingSnapshot ? 'Creating...' : 'Create Snapshot'}</span>
+                    <span className="hidden sm:inline">{isCreatingSnapshot ? 'Creating...' : 'Snapshot Disabled'}</span>
                     <span className="sm:hidden">Snapshot</span>
                   </button>
 

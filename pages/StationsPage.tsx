@@ -12,7 +12,8 @@ import SortableHeader from '../components/SortableHeader';
 import PaginationFooter from '../components/PaginationFooter';
 import CopyButton from '../components/CopyButton';
 import { db } from '@/lib/firebase';
-import { collection, onSnapshot, query } from 'firebase/firestore';
+import { collection, onSnapshot, query, getDocs, orderBy, doc, deleteDoc, updateDoc } from 'firebase/firestore';
+import { PencilSquareIcon, TrashIcon } from '@heroicons/react/24/outline';
 
 interface StationsPageProps { isDarkMode: boolean; }
 
@@ -76,7 +77,58 @@ const StationsPage: React.FC<StationsPageProps> = ({ isDarkMode }) => {
 
   const totalPages = Math.ceil(totalDatabaseCount / itemsPerPage);
   const paginatedData = stations;
-  
+
+  // Modal states
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [editingStation, setEditingStation] = useState<Station | null>(null);
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [stationToDelete, setStationToDelete] = useState<Station | null>(null);
+
+  const handleEditClick = (station: Station) => {
+    setEditingStation(station);
+    setIsEditModalOpen(true);
+  };
+
+  const handleDeleteClick = (station: Station) => {
+    setStationToDelete(station);
+    setIsDeleteModalOpen(true);
+  };
+
+  const confirmDelete = async () => {
+    if (!stationToDelete) return;
+    try {
+      await deleteDoc(doc(db, 'swap_stations', stationToDelete.id));
+      setNotification({ message: 'Station deleted successfully', type: 'success' });
+      fetchStations();
+    } catch (error) {
+      console.error("Error deleting station:", error);
+      setNotification({ message: 'Failed to delete station', type: 'error' });
+    } finally {
+      setIsDeleteModalOpen(false);
+      setStationToDelete(null);
+    }
+  };
+
+  const saveEdit = async () => {
+    if (!editingStation) return;
+    try {
+      const stationRef = doc(db, 'swap_stations', editingStation.id);
+      await updateDoc(stationRef, {
+        name: editingStation.name,
+        dealer_id: editingStation.dealer_id,
+        location_url: editingStation.location_url || ''
+      });
+      setNotification({ message: 'Station updated successfully', type: 'success' });
+      fetchStations();
+    } catch (error) {
+      console.error("Error updating station:", error);
+      setNotification({ message: 'Failed to update station', type: 'error' });
+    } finally {
+      setIsEditModalOpen(false);
+      setEditingStation(null);
+    }
+  };
+
   const openMap = (e: React.MouseEvent, coords: [number, number]) => { 
     e.stopPropagation(); 
     if (!coords || coords.length < 2) return; 
@@ -135,8 +187,25 @@ const StationsPage: React.FC<StationsPageProps> = ({ isDarkMode }) => {
             {paginatedData.map(station => (
               <div 
                 key={station._id || station.id} 
-                className="group bg-white dark:bg-zinc-900 rounded-[2rem] p-6 border border-zinc-100 dark:border-zinc-800 shadow-sm hover:shadow-xl hover:shadow-indigo-500/5 hover:-translate-y-1 transition-all duration-300"
+                className="group bg-white dark:bg-zinc-900 rounded-[2rem] p-6 border border-zinc-100 dark:border-zinc-800 shadow-sm hover:shadow-xl hover:shadow-indigo-500/5 hover:-translate-y-1 transition-all duration-300 relative"
               >
+                <div className="absolute top-4 right-4 flex gap-2 opacity-0 group-hover:opacity-100 transition-all z-10">
+                  <button 
+                    onClick={() => handleEditClick(station)}
+                    className="p-2 bg-white dark:bg-zinc-800 border border-zinc-100 dark:border-zinc-700 rounded-xl text-zinc-400 hover:text-indigo-600 dark:hover:text-indigo-400 shadow-sm transition-all"
+                    title="Edit Station"
+                  >
+                    <PencilSquareIcon className="w-4 h-4" />
+                  </button>
+                  <button 
+                    onClick={() => handleDeleteClick(station)}
+                    className="p-2 bg-white dark:bg-zinc-800 border border-zinc-100 dark:border-zinc-700 rounded-xl text-zinc-400 hover:text-red-600 dark:hover:text-red-400 shadow-sm transition-all"
+                    title="Delete Station"
+                  >
+                    <TrashIcon className="w-4 h-4" />
+                  </button>
+                </div>
+
                 <div className="flex justify-between items-start mb-6">
                   <div className="p-3 bg-indigo-50 dark:bg-indigo-900/20 rounded-2xl text-indigo-600 dark:text-indigo-400">
                     <BuildingStorefrontIcon className="w-6 h-6" />
@@ -182,6 +251,91 @@ const StationsPage: React.FC<StationsPageProps> = ({ isDarkMode }) => {
           dataLength={totalDatabaseCount}
         />
       </div>
+
+      {/* Edit Modal */}
+      {isEditModalOpen && editingStation && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-zinc-900 w-full max-w-lg rounded-[2.5rem] shadow-2xl overflow-hidden border border-zinc-200 dark:border-zinc-800">
+            <div className="p-8 border-b border-zinc-100 dark:border-zinc-800">
+              <h3 className="text-xl font-black text-zinc-900 dark:text-white">Edit Station</h3>
+            </div>
+            <div className="p-8 space-y-6">
+              <div className="space-y-2">
+                <label className="text-[10px] font-black text-zinc-400 uppercase tracking-widest ml-1">Station Name</label>
+                <input 
+                  type="text" 
+                  value={editingStation.name}
+                  onChange={(e) => setEditingStation({...editingStation, name: e.target.value})}
+                  className="w-full px-4 py-3 bg-zinc-50 dark:bg-zinc-950 border border-zinc-100 dark:border-zinc-800 rounded-xl text-sm font-bold outline-none focus:ring-2 focus:ring-indigo-500/20"
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-[10px] font-black text-zinc-400 uppercase tracking-widest ml-1">Station ID</label>
+                <input 
+                  type="text" 
+                  value={editingStation.dealer_id || ''}
+                  onChange={(e) => setEditingStation({...editingStation, dealer_id: e.target.value})}
+                  className="w-full px-4 py-3 bg-zinc-50 dark:bg-zinc-950 border border-zinc-100 dark:border-zinc-800 rounded-xl text-sm font-bold outline-none focus:ring-2 focus:ring-indigo-500/20"
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-[10px] font-black text-zinc-400 uppercase tracking-widest ml-1" title="Maps Link">Location URL</label>
+                <input 
+                  type="text" 
+                  value={editingStation.location_url || ''}
+                  onChange={(e) => setEditingStation({...editingStation, location_url: e.target.value})}
+                  className="w-full px-4 py-3 bg-zinc-50 dark:bg-zinc-950 border border-zinc-100 dark:border-zinc-800 rounded-xl text-sm font-bold outline-none focus:ring-2 focus:ring-indigo-500/20"
+                />
+              </div>
+              <div className="flex gap-4 pt-4">
+                <button 
+                  onClick={() => setIsEditModalOpen(false)}
+                  className="flex-1 py-3 bg-zinc-100 dark:bg-zinc-800 text-zinc-500 rounded-xl font-bold text-sm hover:bg-zinc-200 transition-all"
+                >
+                  Cancel
+                </button>
+                <button 
+                  onClick={saveEdit}
+                  className="flex-1 py-3 bg-indigo-600 text-white rounded-xl font-bold text-sm hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100 dark:shadow-none"
+                >
+                  Save Changes
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {isDeleteModalOpen && stationToDelete && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-zinc-900 w-full max-w-md rounded-[2.5rem] shadow-2xl overflow-hidden border border-zinc-200 dark:border-zinc-800">
+            <div className="p-8 text-center">
+              <div className="w-16 h-16 bg-red-50 dark:bg-red-900/20 rounded-2xl flex items-center justify-center mx-auto mb-6">
+                <TrashIcon className="w-8 h-8 text-red-600" />
+              </div>
+              <h3 className="text-xl font-black text-zinc-900 dark:text-white mb-2">Delete Station?</h3>
+              <p className="text-zinc-500 text-sm font-medium mb-8">
+                Are you sure you want to delete <span className="font-bold text-zinc-900 dark:text-white">{stationToDelete.name}</span>? This action cannot be undone.
+              </p>
+              <div className="flex gap-4">
+                <button 
+                  onClick={() => setIsDeleteModalOpen(false)}
+                  className="flex-1 py-3 bg-zinc-100 dark:bg-zinc-800 text-zinc-500 rounded-xl font-bold text-sm hover:bg-zinc-200 transition-all"
+                >
+                  Cancel
+                </button>
+                <button 
+                  onClick={confirmDelete}
+                  className="flex-1 py-3 bg-red-600 text-white rounded-xl font-bold text-sm hover:bg-red-700 transition-all shadow-lg shadow-red-100 dark:shadow-none"
+                >
+                  Delete
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

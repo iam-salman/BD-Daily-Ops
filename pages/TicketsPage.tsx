@@ -18,7 +18,9 @@ import {
   ArrowDownTrayIcon,
   ShareIcon,
   FunnelIcon,
-  WalletIcon 
+  WalletIcon,
+  PencilSquareIcon,
+  TrashIcon
 } from '@heroicons/react/24/outline';
 import ExcelJS from 'exceljs';
 import { saveAs } from 'file-saver';
@@ -29,6 +31,7 @@ import {
   orderBy, 
   addDoc, 
   updateDoc, 
+  deleteDoc,
   doc, 
   where,
   getDocs,
@@ -56,6 +59,33 @@ const CATEGORIES = [
   { id: 'rickshaw_stopped', label: 'Rickshaw stopped', subCategories: [] },
   { id: 'other', label: 'Other', subCategories: [] }
 ];
+
+const getTimestamps = (range: string) => {
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime() / 1000;
+  
+  switch (range) {
+    case 'today':
+      return { from: today, to: today + 86399 };
+    case 'yesterday':
+      return { from: today - 86400, to: today - 1 };
+    case 'last7days':
+      return { from: today - (6 * 86400), to: today + 86399 };
+    case 'last30days':
+      return { from: today - (29 * 86400), to: today + 86399 };
+    case 'thisMonth': {
+      const first = new Date(now.getFullYear(), now.getMonth(), 1).getTime() / 1000;
+      return { from: first, to: today + 86399 };
+    }
+    case 'lastMonth': {
+      const first = new Date(now.getFullYear(), now.getMonth() - 1, 1).getTime() / 1000;
+      const last = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59).getTime() / 1000;
+      return { from: first, to: last };
+    }
+    default:
+      return { from: 0, to: 2147483647 };
+  }
+};
 
 const ITEMS_REPLACED_OPTIONS = ['Harness', 'SoC Meter', 'MCB', 'Extension Cable'];
 
@@ -99,6 +129,13 @@ const TicketsPage: React.FC<TicketsPageProps> = ({ isDarkMode, user, role, db, u
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [compensationType, setCompensationType] = useState<'Half' | 'Free' | 'Acc to Left' | null>(null);
+
+  // Edit/Delete states
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [editingTicket, setEditingTicket] = useState<Ticket | null>(null);
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [ticketToDelete, setTicketToDelete] = useState<Ticket | null>(null);
+
   const [activeTab, setActiveTab] = useState<'info' | 'action' | 'chat'>('info');
   const [showConfirmModal, setShowConfirmModal] = useState<{ type: 'close' | 'compensation' | 'initiate', ticketId: string } | null>(null);
   const [driverWalletBalance, setDriverWalletBalance] = useState<number | null>(null);
@@ -257,6 +294,50 @@ const TicketsPage: React.FC<TicketsPageProps> = ({ isDarkMode, user, role, db, u
     setSelectedSubCategory('');
     setMessage('');
     setSelectedTechnician(null);
+  };
+
+  const handleEditTicket = (e: React.MouseEvent, ticket: Ticket) => {
+    e.stopPropagation();
+    setEditingTicket(JSON.parse(JSON.stringify(ticket)));
+    setIsEditModalOpen(true);
+  };
+
+  const handleDeleteTicket = (e: React.MouseEvent, ticket: Ticket) => {
+    e.stopPropagation();
+    setTicketToDelete(ticket);
+    setIsDeleteModalOpen(true);
+  };
+
+  const saveEditedTicket = async () => {
+    if (!editingTicket) return;
+    setIsSubmitting(true);
+    try {
+      await updateDoc(doc(db, 'tickets', editingTicket.id), {
+        category: editingTicket.category,
+        subCategory: editingTicket.subCategory,
+        message: editingTicket.message
+      });
+      setIsEditModalOpen(false);
+      setEditingTicket(null);
+    } catch (error) {
+      console.error("Error updating ticket:", error);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const confirmDeleteTicket = async () => {
+    if (!ticketToDelete) return;
+    setIsSubmitting(true);
+    try {
+      await deleteDoc(doc(db, 'tickets', ticketToDelete.id));
+      setIsDeleteModalOpen(false);
+      setTicketToDelete(null);
+    } catch (error) {
+      console.error("Error deleting ticket:", error);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const handlePostComment = async () => {
@@ -737,11 +818,28 @@ const TicketsPage: React.FC<TicketsPageProps> = ({ isDarkMode, user, role, db, u
             >
               <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-500/5 rounded-full -mr-16 -mt-16 group-hover:scale-150 transition-transform duration-700"></div>
               
-              <div className="flex justify-between items-start mb-6 relative z-10">
+              <div className="absolute top-4 right-4 flex gap-2 opacity-0 group-hover:opacity-100 transition-all z-20">
+                <button 
+                  onClick={(e) => handleEditTicket(e, ticket)}
+                  className="p-1.5 bg-white dark:bg-zinc-800 border border-zinc-100 dark:border-zinc-700 rounded-lg text-zinc-400 hover:text-indigo-600 dark:hover:text-indigo-400 shadow-sm transition-all"
+                  title="Edit Ticket"
+                >
+                  <PencilSquareIcon className="w-3.5 h-3.5" />
+                </button>
+                <button 
+                  onClick={(e) => handleDeleteTicket(e, ticket)}
+                  className="p-1.5 bg-white dark:bg-zinc-800 border border-zinc-100 dark:border-zinc-700 rounded-lg text-zinc-400 hover:text-red-600 dark:hover:text-red-400 shadow-sm transition-all"
+                  title="Delete Ticket"
+                >
+                  <TrashIcon className="w-3.5 h-3.5" />
+                </button>
+              </div>
+
+              <div className="flex justify-between items-start mb-6 relative z-10 text-right">
                 <div className={`px-4 py-1.5 rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-sm ${getStatusColor(ticket.status)}`}>
                   {ticket.status}
                 </div>
-                <div className="flex flex-col items-end">
+                <div className="flex flex-col items-end pr-8 sm:pr-0">
                   <span className="text-[10px] font-black text-zinc-400 uppercase tracking-tighter">{new Date(ticket.createdAt).toLocaleDateString()}</span>
                   <span className="text-[8px] font-bold text-zinc-300">{new Date(ticket.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                 </div>
@@ -1503,6 +1601,93 @@ const TicketsPage: React.FC<TicketsPageProps> = ({ isDarkMode, user, role, db, u
               >
                 Confirm
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Edit Ticket Modal */}
+      {isEditModalOpen && editingTicket && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-zinc-900 w-full max-w-lg rounded-[2.5rem] shadow-2xl overflow-hidden border border-zinc-200 dark:border-zinc-800">
+            <div className="p-8 border-b border-zinc-100 dark:border-zinc-800 flex justify-between items-center">
+              <h3 className="text-xl font-black text-zinc-900 dark:text-white">Edit Ticket</h3>
+              <button onClick={() => setIsEditModalOpen(false)} className="p-2 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-full transition-colors">
+                <XMarkIcon className="w-6 h-6 text-zinc-400" />
+              </button>
+            </div>
+            <div className="p-8 space-y-6">
+              <div className="space-y-1">
+                <label className="text-[10px] font-black text-zinc-400 uppercase tracking-widest ml-1">Category</label>
+                <CustomSelect
+                  options={CATEGORIES.map(c => ({ value: c.label, label: c.label }))}
+                  value={editingTicket.category}
+                  onChange={(val) => setEditingTicket({...editingTicket, category: val, subCategory: ''})}
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-[10px] font-black text-zinc-400 uppercase tracking-widest ml-1">Sub Category</label>
+                <CustomSelect
+                  options={(CATEGORIES.find(c => c.label === editingTicket.category)?.subCategories || []).map(s => ({ value: s, label: s }))}
+                  value={editingTicket.subCategory || ''}
+                  onChange={(val) => setEditingTicket({...editingTicket, subCategory: val})}
+                  disabled={!editingTicket.category}
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-[10px] font-black text-zinc-400 uppercase tracking-widest ml-1">Issue Description</label>
+                <textarea 
+                  value={editingTicket.message || ''}
+                  onChange={(e) => setEditingTicket({...editingTicket, message: e.target.value})}
+                  className="w-full px-4 py-3 bg-zinc-50 dark:bg-zinc-950 border border-zinc-100 dark:border-zinc-800 rounded-xl text-sm font-bold outline-none focus:ring-2 focus:ring-indigo-500/20 dark:text-white min-h-[100px]"
+                />
+              </div>
+              <div className="flex gap-4 pt-4">
+                <button 
+                  onClick={() => setIsEditModalOpen(false)}
+                  className="flex-1 py-3 bg-zinc-100 dark:bg-zinc-800 text-zinc-500 rounded-xl font-bold text-sm hover:bg-zinc-200 transition-all"
+                >
+                  Cancel
+                </button>
+                <button 
+                  onClick={saveEditedTicket}
+                  disabled={isSubmitting}
+                  className="flex-1 py-3 bg-indigo-600 text-white rounded-xl font-bold text-sm hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100 dark:shadow-none flex items-center justify-center"
+                >
+                  {isSubmitting ? <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div> : 'Save Changes'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Ticket Confirmation Modal */}
+      {isDeleteModalOpen && ticketToDelete && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-zinc-900 w-full max-w-md rounded-[2.5rem] shadow-2xl overflow-hidden border border-zinc-200 dark:border-zinc-800">
+            <div className="p-8 text-center">
+              <div className="w-16 h-16 bg-red-50 dark:bg-red-900/20 rounded-2xl flex items-center justify-center mx-auto mb-6">
+                <TrashIcon className="w-8 h-8 text-red-600" />
+              </div>
+              <h3 className="text-xl font-black text-zinc-900 dark:text-white mb-2">Delete Ticket?</h3>
+              <p className="text-zinc-500 text-sm font-medium mb-8">
+                Are you sure you want to delete this ticket? This action cannot be undone.
+              </p>
+              <div className="flex gap-4">
+                <button 
+                  onClick={() => setIsDeleteModalOpen(false)}
+                  className="flex-1 py-3 bg-zinc-100 dark:bg-zinc-800 text-zinc-500 rounded-xl font-bold text-sm hover:bg-zinc-200 transition-all"
+                >
+                  Cancel
+                </button>
+                <button 
+                  onClick={confirmDeleteTicket}
+                  disabled={isSubmitting}
+                  className="flex-1 py-3 bg-red-600 text-white rounded-xl font-bold text-sm hover:bg-red-700 transition-all shadow-lg shadow-red-100 dark:shadow-none flex items-center justify-center"
+                >
+                  {isSubmitting ? <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div> : 'Delete'}
+                </button>
+              </div>
             </div>
           </div>
         </div>
