@@ -515,13 +515,28 @@ const InventoryPage: React.FC<InventoryPageProps> = ({ isDarkMode, db, user }) =
     const fetchItems = async () => {
       setLoading(true);
       try {
-        const response = await fetch(`/api/getInventory?typeId=${activeTypeId}&page=${currentPage}&count=${itemsPerPage}&search=${searchQuery}`);
-        const data = await response.json();
-        if (!response.ok) throw new Error(data.error);
+        const itemsRef = collection(db, 'inventory_items');
+        let q = query(itemsRef, where("typeId", "==", activeTypeId), orderBy("lastMoved", "desc"));
+        const snapshot = await getDocs(q);
+        
+        let loadedItems = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as InventoryItem));
 
-        setItems(data.items);
-        setTotalDatabaseCount(data.total);
-        setHasMore(currentPage < data.totalPages);
+        if (searchQuery) {
+          const qStr = searchQuery.toLowerCase();
+          loadedItems = loadedItems.filter(item => {
+            const dataStr = JSON.stringify(item.data).toLowerCase();
+            return item.id.toLowerCase().includes(qStr) || dataStr.includes(qStr);
+          });
+        }
+
+        setTotalDatabaseCount(loadedItems.length);
+        const totalPagesCount = Math.ceil(loadedItems.length / itemsPerPage);
+        
+        const startIndex = (currentPage - 1) * itemsPerPage;
+        const paginatedData = loadedItems.slice(startIndex, startIndex + itemsPerPage);
+
+        setItems(paginatedData);
+        setHasMore(currentPage < totalPagesCount);
       } catch (err) {
         console.error("Failed to fetch inventory", err);
       } finally {

@@ -71,15 +71,54 @@ const AlertsPage: React.FC<AlertsPageProps> = ({ isDarkMode, db, user, role }) =
     setIsRefetching(true);
     setLoading(true);
     try {
-      const endpoint = activeTab === 'tickets' ? '/api/getTicketAlerts' : '/api/getSwapAlerts';
-      const response = await fetch(`${endpoint}?page=${currentPage}&count=${itemsPerPage}&search=${searchQuery}`);
-      const data = await response.json();
-      
-      if (!response.ok) throw new Error(data.error);
+      if (activeTab === 'tickets') {
+        const ticketsRef = collection(db, 'tickets');
+        const q = query(ticketsRef, orderBy('createdAt', 'desc'));
+        const snapshot = await getDocs(q);
+        
+        const allTickets = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as any));
+        
+        let filtered = allTickets.filter(t => 
+          t.status === 'Open' || t.status === 'Initiated Close' || t.status === 'Pending Admin'
+        );
 
-      setAlerts(activeTab === 'tickets' ? data.alerts : data.alerts);
-      setTotalDatabaseCount(data.total);
-      setHasMore(currentPage < data.totalPages);
+        if (searchQuery) {
+          const qStr = searchQuery.toLowerCase();
+          filtered = filtered.filter(t => 
+            t.driverName?.toLowerCase().includes(qStr) || 
+            t.driverId?.toLowerCase().includes(qStr) ||
+            t.driverPhone?.includes(qStr)
+          );
+        }
+
+        setTotalDatabaseCount(filtered.length);
+        const startIndex = (currentPage - 1) * itemsPerPage;
+        setAlerts(filtered.slice(startIndex, startIndex + itemsPerPage));
+        setHasMore(currentPage < Math.ceil(filtered.length / itemsPerPage));
+      } else {
+        // Swap Alerts: Drivers who haven't swapped in > 24h
+        const threshold = Date.now() - (24 * 60 * 60 * 1000);
+        const driversRef = collection(db, 'drivers');
+        const snapshot = await getDocs(query(driversRef, where('is_active', '==', true)));
+        
+        let delayedDrivers = snapshot.docs
+          .map(doc => ({ id: doc.id, ...doc.data() } as any))
+          .filter(d => !d.last_swap_date || (d.last_swap_date > 100000000000 ? d.last_swap_date : d.last_swap_date * 1000) < threshold);
+
+        if (searchQuery) {
+          const qStr = searchQuery.toLowerCase();
+          delayedDrivers = delayedDrivers.filter(d => 
+            d.name?.toLowerCase().includes(qStr) || 
+            d.driver_id?.toLowerCase().includes(qStr) ||
+            d.phone?.includes(qStr)
+          );
+        }
+
+        setTotalDatabaseCount(delayedDrivers.length);
+        const startIndex = (currentPage - 1) * itemsPerPage;
+        setAlerts(delayedDrivers.slice(startIndex, startIndex + itemsPerPage));
+        setHasMore(currentPage < Math.ceil(delayedDrivers.length / itemsPerPage));
+      }
 
       // Still need logs for the sidebar
       const logsSnap = await getDocs(collection(db, 'alert_logs'));

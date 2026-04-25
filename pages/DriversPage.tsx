@@ -76,17 +76,39 @@ const DriversPage: React.FC<DriversPageProps> = ({ onDriverSelect, isDarkMode, r
     setIsRefetching(true);
     setLoading(true);
     try {
-      const response = await fetch(`/api/getDrivers?page=${currentPage}&count=${itemsPerPage}&search=${searchQuery}&onboardingStatus=${onboardingFilter}`);
-      const data = await response.json();
+      const driversRef = collection(db, 'drivers');
+      const q = query(driversRef, orderBy('name', 'asc'));
+      const snapshot = await getDocs(q);
       
-      if (!response.ok) throw new Error(data.error || 'Failed to fetch');
+      let driversData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Driver));
 
-      setDrivers(data.drivers);
-      setTotalDatabaseCount(data.total);
-      setHasMore(currentPage < data.totalPages);
+      // Apply filters in memory
+      const qStr = searchQuery.toLowerCase();
+      driversData = driversData.filter(d => {
+        const matchesSearch = !qStr || 
+          d.name?.toLowerCase().includes(qStr) || 
+          d.driver_id?.toLowerCase().includes(qStr) ||
+          d.phone?.includes(qStr) ||
+          (d.vehicle_info?.vehicle_number || d.latest_swap?.vehicle_number || '').toLowerCase().includes(qStr);
+        
+        const matchesOnboarding = onboardingFilter === 'all' || d.onboardingStatus === onboardingFilter;
+        const matchesStatus = statusFilter === 'all' || (statusFilter === 'active' ? d.is_active : !d.is_active);
+        const matchesAssigned = assignedFilter === 'all' || (assignedFilter === 'yes' ? d.assigned : !d.assigned);
+        
+        return matchesSearch && matchesOnboarding && matchesStatus && matchesAssigned;
+      });
+
+      setTotalDatabaseCount(driversData.length);
+      const totalPagesCount = Math.ceil(driversData.length / itemsPerPage);
+      
+      const startIndex = (currentPage - 1) * itemsPerPage;
+      const paginatedData = driversData.slice(startIndex, startIndex + itemsPerPage);
+
+      setDrivers(paginatedData);
+      setHasMore(currentPage < totalPagesCount);
     } catch (err) { 
-      console.error("Failed to fetch data from API", err); 
-      setNotification({ message: 'Failed to fetch drivers from backend', type: 'error' });
+      console.error("Failed to fetch data from Firestore", err); 
+      setNotification({ message: 'Failed to fetch drivers from Firestore', type: 'error' });
     } finally { 
       setLoading(false); 
       setIsRefetching(false); 

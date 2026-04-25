@@ -174,17 +174,31 @@ const SwappingSessionsPage: React.FC = () => {
   const fetchSessions = async () => {
     setLoading(true);
     try {
-      // For now, we only pass search to API. 
-      // Detailed filters are still client-side in the original code, 
-      // but they only work on the fetched sessions.
-      // To improve this, we would need to move ALL filters to API.
-      const response = await fetch(`/api/getSwappingSessions?page=${currentPage}&count=${itemsPerPage}&search=${searchQuery}`);
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error);
+      const sessionsRef = collection(db, 'swapping_sessions');
+      const q = firestoreQuery(sessionsRef, firestoreOrderBy('timestamp', 'desc'));
+      const snapshot = await getDocs(q);
+      
+      let allSessions = snapshot.docs.map(doc => ({ _id: doc.id, ...doc.data() } as SwappingSession));
 
-      setSessions(data.sessions);
-      setTotalDatabaseCount(data.total);
-      setHasMore(currentPage < data.totalPages);
+      if (searchQuery) {
+        const qStr = searchQuery.toLowerCase();
+        allSessions = allSessions.filter(s => 
+          s.txn_id.toLowerCase().includes(qStr) ||
+          s.payer_id.toLowerCase().includes(qStr) ||
+          s.vehicle_number.toLowerCase().includes(qStr) ||
+          (s.driverData?.phone || '').includes(qStr) ||
+          (s.driverData?.name || '').toLowerCase().includes(qStr)
+        );
+      }
+
+      setTotalDatabaseCount(allSessions.length);
+      const totalPagesCount = Math.ceil(allSessions.length / itemsPerPage);
+      
+      const startIndex = (currentPage - 1) * itemsPerPage;
+      const paginatedData = allSessions.slice(startIndex, startIndex + itemsPerPage);
+
+      setSessions(paginatedData);
+      setHasMore(currentPage < totalPagesCount);
     } catch (err) {
       console.error("Error fetching sessions:", err);
     } finally {

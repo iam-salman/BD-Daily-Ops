@@ -103,25 +103,41 @@ const UserManagement: React.FC<UserManagementProps> = ({ isDarkMode, db }) => {
   ];
 
   useEffect(() => {
-    const fetchUsers = async () => {
+    const fetchUsersData = async () => {
       setLoading(true);
       try {
-        const response = await fetch(`/api/getUsers?page=${currentPage}&count=${itemsPerPage}&search=${searchQuery}`);
-        const data = await response.json();
-        if (!response.ok) throw new Error(data.error);
+        const usersRef = collection(db, "users");
+        const q = query(usersRef, orderBy("invitedAt", "desc"));
+        const snapshot = await getDocs(q);
+        
+        let allUsers = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as ManagedUser));
 
-        setUsers(data.users);
-        setTotalDatabaseCount(data.total);
+        if (searchQuery) {
+          const qStr = searchQuery.toLowerCase();
+          allUsers = allUsers.filter(u => 
+            u.email.toLowerCase().includes(qStr) ||
+            u.role.toLowerCase().includes(qStr) ||
+            (u.name || '').toLowerCase().includes(qStr)
+          );
+        }
+
+        setTotalDatabaseCount(allUsers.length);
+        const totalPagesCount = Math.ceil(allUsers.length / itemsPerPage);
+        
+        const startIndex = (currentPage - 1) * itemsPerPage;
+        const paginatedData = allUsers.slice(startIndex, startIndex + itemsPerPage);
+
+        setUsers(paginatedData);
       } catch (err) {
         console.error("Failed to fetch users", err);
-        setErrorMsg("Failed to fetch users from backend.");
+        setErrorMsg("Failed to fetch users from Firestore.");
       } finally {
         setLoading(false);
       }
     };
 
-    fetchUsers();
-  }, [itemsPerPage, currentPage, searchQuery]);
+    fetchUsersData();
+  }, [itemsPerPage, currentPage, searchQuery, db]);
 
   const handleInvite = async (e: React.FormEvent) => {
     e.preventDefault();

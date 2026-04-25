@@ -260,11 +260,12 @@ const CashReportPage: React.FC<CashReportPageProps> = ({ isDarkMode, user, role,
   const fetchCollections = async () => {
     setLoading(true);
     try {
-      const response = await fetch(`/api/getCashCollections?page=1&count=5000`);
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error);
+      const collectionsRef = collection(db, 'cash_collections');
+      const q = query(collectionsRef, orderBy('timestamp', 'desc'));
+      const snapshot = await getDocs(q);
       
-      setCollections(data.collections);
+      const collectionsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as CashCollection));
+      setCollections(collectionsData);
     } catch (err) {
       console.error("Error fetching collections:", err);
     } finally {

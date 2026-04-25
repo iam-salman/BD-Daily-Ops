@@ -146,19 +146,40 @@ const TicketsPage: React.FC<TicketsPageProps> = ({ isDarkMode, user, role, db, u
   }, [showDetailModal, activeTab, db]);
 
   useEffect(() => {
-    const fetchTickets = async () => {
+    const fetchTicketsData = async () => {
       setLoading(true);
       try {
-        let url = `/api/getTickets?status=${statusFilter}&search=${searchQuery}&dateRange=${dateRange}`;
-        if (dateRange === 'custom' && customStartDate && customEndDate) {
-          url += `&startDate=${customStartDate}&endDate=${customEndDate}`;
-        }
-        const response = await fetch(url);
-        const data = await response.json();
-        if (!response.ok) throw new Error(data.error);
+        const ticketsRef = collection(db, 'tickets');
+        const q = query(ticketsRef, orderBy('createdAt', 'desc'));
+        const snapshot = await getDocs(q);
+        
+        let allTickets = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Ticket));
 
-        setTickets(data.tickets);
-        setTotalDatabaseCount(data.total);
+        // Filter by status if not 'All'
+        if (statusFilter !== 'All') {
+          allTickets = allTickets.filter(t => t.status === statusFilter);
+        }
+
+        if (searchQuery) {
+          const qStr = searchQuery.toLowerCase();
+          allTickets = allTickets.filter(t => 
+            t.driverName.toLowerCase().includes(qStr) ||
+            t.driverId.toLowerCase().includes(qStr) ||
+            t.vehicleNumber.toLowerCase().includes(qStr)
+          );
+        }
+
+        // Apply date range filter
+        const { from, to } = getTimestamps(dateRange);
+        if (dateRange !== 'all' && dateRange !== 'All') {
+           allTickets = allTickets.filter(t => {
+             const ts = new Date(t.createdAt).getTime() / 1000;
+             return ts >= from && ts <= to;
+           });
+        }
+
+        setTickets(allTickets);
+        setTotalDatabaseCount(allTickets.length);
       } catch (err) {
         console.error("Failed to fetch tickets", err);
       } finally {
@@ -166,7 +187,7 @@ const TicketsPage: React.FC<TicketsPageProps> = ({ isDarkMode, user, role, db, u
       }
     };
 
-    fetchTickets();
+    fetchTicketsData();
   }, [statusFilter, searchQuery, dateRange, customStartDate, customEndDate]);
 
   useEffect(() => {

@@ -42,13 +42,26 @@ const StationsPage: React.FC<StationsPageProps> = ({ isDarkMode }) => {
   const fetchStations = async () => {
     setLoading(true);
     try {
-      const response = await fetch(`/api/getStations?page=${currentPage}&count=${itemsPerPage}&search=${searchQuery}`);
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error);
+      const stationsRef = collection(db, 'swap_stations');
+      const qSnapshot = await getDocs(query(stationsRef, orderBy('name', 'asc')));
+      let stationsData = qSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Station));
 
-      setStations(data.stations);
-      setTotalDatabaseCount(data.total);
-      setHasMore(currentPage < data.totalPages);
+      if (searchQuery) {
+        const qStr = searchQuery.toLowerCase();
+        stationsData = stationsData.filter(s => 
+          s.name.toLowerCase().includes(qStr) || 
+          s.dealer_id?.toLowerCase().includes(qStr)
+        );
+      }
+
+      setTotalDatabaseCount(stationsData.length);
+      const totalPagesCount = Math.ceil(stationsData.length / itemsPerPage);
+      
+      const startIndex = (currentPage - 1) * itemsPerPage;
+      const paginatedData = stationsData.slice(startIndex, startIndex + itemsPerPage);
+
+      setStations(paginatedData);
+      setHasMore(currentPage < totalPagesCount);
     } catch (err) {
       console.error("Error fetching stations:", err);
       setNotification({ message: 'Failed to fetch stations', type: 'error' });

@@ -95,14 +95,28 @@ const IDCardsPage: React.FC<IDCardsPageProps> = ({ isDarkMode, db, user, role, u
   const fetchIDCards = async () => {
     setLoading(true);
     try {
-      const response = await fetch(`/api/getIDCards?page=${currentPage}&count=${itemsPerPage}&search=${searchQuery}`);
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error);
+      const driversRef = collection(db, 'drivers');
+      const q = query(driversRef, orderBy('name', 'asc'));
+      const snapshot = await getDocs(q);
+      
+      let driversData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Driver));
 
-      // Map API 'cards' to 'drivers' state for compatibility with existing UI
-      setDrivers(data.cards);
-      setTotalDatabaseCount(data.total);
-      setHasMore(currentPage < data.totalPages);
+      if (searchQuery) {
+        const q = searchQuery.toLowerCase();
+        driversData = driversData.filter(d => 
+          d.name.toLowerCase().includes(q) || 
+          (d.driver_id || d.id)?.toLowerCase().includes(q)
+        );
+      }
+
+      setTotalDatabaseCount(driversData.length);
+      const totalPagesCount = Math.ceil(driversData.length / itemsPerPage);
+      
+      const startIndex = (currentPage - 1) * itemsPerPage;
+      const paginatedData = driversData.slice(startIndex, startIndex + itemsPerPage);
+
+      setDrivers(paginatedData);
+      setHasMore(currentPage < totalPagesCount);
     } catch (err) {
       console.error("Error fetching ID cards:", err);
     } finally {
