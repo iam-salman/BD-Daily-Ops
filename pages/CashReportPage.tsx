@@ -6,7 +6,6 @@ import {
   MapPinIcon, 
   UserIcon, 
   ArrowDownTrayIcon,
-  MagnifyingGlassIcon,
   XMarkIcon,
   CheckCircleIcon,
   CurrencyRupeeIcon,
@@ -37,6 +36,7 @@ import {
 } from 'firebase/firestore';
 import { CashCollection, CashDenominations, Station, UserRole, StationGroup } from '../types';
 import CustomSelect from '../components/CustomSelect';
+import { CustomDatePicker } from '../components/CustomDatePicker';
 import { motion, AnimatePresence } from 'motion/react';
 import ExcelJS from 'exceljs';
 import { saveAs } from 'file-saver';
@@ -85,7 +85,7 @@ const CashReportPage: React.FC<CashReportPageProps> = ({ isDarkMode, user, role,
   const [showGroupsModal, setShowGroupsModal] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [viewType, setViewType] = useState<'cards' | 'table'>('table');
-
+  
   // Group Management State
   const [newGroupName, setNewGroupName] = useState('');
   const [selectedStationsForGroup, setSelectedStationsForGroup] = useState<string[]>([]);
@@ -98,12 +98,14 @@ const CashReportPage: React.FC<CashReportPageProps> = ({ isDarkMode, user, role,
       if (editingGroupId) {
         await updateDoc(doc(db, 'station_groups', editingGroupId), {
           name: newGroupName,
-          stationIds: selectedStationsForGroup
+          stationIds: selectedStationsForGroup,
+          type: 'cash_report'
         });
       } else {
         await addDoc(collection(db, 'station_groups'), {
           name: newGroupName,
           stationIds: selectedStationsForGroup,
+          type: 'cash_report',
           createdAt: new Date().toISOString()
         });
       }
@@ -181,7 +183,7 @@ const CashReportPage: React.FC<CashReportPageProps> = ({ isDarkMode, user, role,
     });
   }, [collections, userMap]);
 
-const availableStations = useMemo(() => {
+  const availableStations = useMemo(() => {
     const masters = (stations || []).map(s => ({ id: s.id, name: s.name || 'Unknown' }));
     const fromSessions = (sessionStations || []).map(s => ({ id: s.id, name: s.name }));
     const fromCollections = (collections || []).map(c => ({ id: c.stationId, name: c.stationName || 'Unknown' }));
@@ -243,6 +245,8 @@ const availableStations = useMemo(() => {
 
   // Entry Form State
   const [selectedStation, setSelectedStation] = useState('');
+  const [selectedDate, setSelectedDate] = useState(format(new Date(), 'yyyy-MM-dd'));
+  const [editingCollectionId, setEditingCollectionId] = useState<string | null>(null);
   const [denoms, setDenoms] = useState<CashDenominations>({
     n500: 0,
     n200: 0,
@@ -253,20 +257,26 @@ const availableStations = useMemo(() => {
     coins: 0
   });
 
-  useEffect(() => {
-    const q = query(
-      collection(db, 'cash_collections'),
-      orderBy('timestamp', 'desc')
-    );
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const data = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      })) as CashCollection[];
-      setCollections(data);
+  const fetchCollections = async () => {
+    setLoading(true);
+    try {
+      const response = await fetch(`/api/getCashCollections?page=1&count=5000`);
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error);
+      
+      setCollections(data.collections);
+    } catch (err) {
+      console.error("Error fetching collections:", err);
+    } finally {
       setLoading(false);
-    });
+    }
+  };
 
+  useEffect(() => {
+    fetchCollections();
+  }, []);
+
+  useEffect(() => {
     const fetchStations = async () => {
       const sSnap = await getDocs(query(collection(db, 'swap_stations'), orderBy('name', 'asc')));
       setStations(sSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Station)));
@@ -289,7 +299,7 @@ const availableStations = useMemo(() => {
       })));
     };
 
-    const unsubscribeGroups = onSnapshot(collection(db, 'station_groups'), (snapshot) => {
+    const unsubscribeGroups = onSnapshot(query(collection(db, 'station_groups'), where('type', '==', 'cash_report')), (snapshot) => {
       setStationGroups(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as StationGroup)));
     });
 
@@ -313,7 +323,6 @@ const availableStations = useMemo(() => {
     fetchSessionStations();
 
     return () => {
-      unsubscribe();
       unsubscribeGroups();
     };
   }, [db]);
@@ -335,9 +344,13 @@ const availableStations = useMemo(() => {
     if (!selectedStation || isSubmitting) return;
     setIsSubmitting(true);
     try {
-      const station = stations.find(s => s.id === selectedStation);
+      const station = availableStations.find(s => s.id === selectedStation);
       
-      const newEntry: Omit<CashCollection, 'id'> = {
+      const timestamp = editingCollectionId 
+        ? collections.find(c => c.id === editingCollectionId)?.timestamp || new Date().toISOString() 
+        : new Date().toISOString();
+
+      const entryData: any = {
         stationId: selectedStation,
         stationName: station?.name || 'Unknown',
         operatorId: 'N/A',
@@ -346,11 +359,21 @@ const availableStations = useMemo(() => {
         collectedByName: userName || user.displayName || user.email.split('@')[0],
         denominations: denoms,
         totalAmount,
-        date: new Date().toISOString().split('T')[0],
-        timestamp: new Date().toISOString()
+        date: selectedDate,
+        timestamp: timestamp,
+        createdAt: timestamp
       };
 
-      await addDoc(collection(db, 'cash_collections'), newEntry);
+      if (editingCollectionId) {
+        await updateDoc(doc(db, 'cash_collections', editingCollectionId), entryData);
+        // Update local state to reflect change immediately
+        setCollections(prev => prev.map(c => c.id === editingCollectionId ? { ...c, ...entryData } : c));
+      } else {
+        const docRef = await addDoc(collection(db, 'cash_collections'), entryData);
+        // Optionally update local state
+        setCollections(prev => [{ id: docRef.id, ...entryData }, ...prev]);
+      }
+
       setShowEntryModal(false);
       resetForm();
     } catch (error) {
@@ -360,8 +383,30 @@ const availableStations = useMemo(() => {
     }
   };
 
+  const handleDeleteCollection = async (collectionId: string) => {
+    if (!window.confirm('Are you sure you want to delete this collection record?')) return;
+    
+    try {
+      await deleteDoc(doc(db, 'cash_collections', collectionId));
+      setCollections(prev => prev.filter(c => c.id !== collectionId));
+    } catch (error) {
+      console.error("Error deleting collection:", error);
+      alert("Failed to delete record.");
+    }
+  };
+
+  const handleEditCollection = (item: CashCollection) => {
+    setEditingCollectionId(item.id || null);
+    setSelectedStation(item.stationId);
+    setSelectedDate(item.date);
+    setDenoms(item.denominations);
+    setShowEntryModal(true);
+  };
+
   const resetForm = () => {
     setSelectedStation('');
+    setSelectedDate(format(new Date(), 'yyyy-MM-dd'));
+    setEditingCollectionId(null);
     setDenoms({
       n500: 0,
       n200: 0,
@@ -658,28 +703,18 @@ const availableStations = useMemo(() => {
               {datePreset === 'Custom Range' && (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-8 mt-8 border-t border-zinc-50 dark:border-zinc-800 animate-in slide-in-from-top-4 duration-500">
                   <div className="space-y-2 px-1">
-                    <label className="text-[10px] font-black text-zinc-400 uppercase tracking-widest ml-1">From Date</label>
-                    <div className="relative group">
-                      <CalendarIcon className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-zinc-400 group-focus-within:text-indigo-500 transition-colors" />
-                      <input 
-                        type="date" 
-                        value={dateFrom}
-                        onChange={(e) => setDateFrom(e.target.value)}
-                        className="w-full pl-12 pr-4 py-4 bg-zinc-50 dark:bg-zinc-950/50 border border-zinc-100 dark:border-zinc-800 rounded-3xl text-sm focus:ring-4 focus:ring-indigo-500/10 outline-none dark:text-white font-bold transition-all hover:bg-zinc-100 dark:hover:bg-zinc-900"
-                      />
-                    </div>
+                    <CustomDatePicker 
+                      label="From Date"
+                      value={dateFrom}
+                      onChange={(val) => setDateFrom(val)}
+                    />
                   </div>
                   <div className="space-y-2 px-1">
-                    <label className="text-[10px] font-black text-zinc-400 uppercase tracking-widest ml-1">To Date</label>
-                    <div className="relative group">
-                      <CalendarIcon className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-zinc-400 group-focus-within:text-indigo-500 transition-colors" />
-                      <input 
-                        type="date" 
-                        value={dateTo}
-                        onChange={(e) => setDateTo(e.target.value)}
-                        className="w-full pl-12 pr-4 py-4 bg-zinc-50 dark:bg-zinc-950/50 border border-zinc-100 dark:border-zinc-800 rounded-3xl text-sm focus:ring-4 focus:ring-indigo-500/10 outline-none dark:text-white font-bold transition-all hover:bg-zinc-100 dark:hover:bg-zinc-900"
-                      />
-                    </div>
+                    <CustomDatePicker 
+                      label="To Date"
+                      value={dateTo}
+                      onChange={(val) => setDateTo(val)}
+                    />
                   </div>
                 </div>
               )}
@@ -767,7 +802,7 @@ const availableStations = useMemo(() => {
           </div>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 gap-6">
           {loading ? (
             Array.from({ length: 8 }).map((_, i) => (
               <div key={i} className="h-48 bg-white dark:bg-zinc-900 rounded-[2.5rem] border border-zinc-100 dark:border-zinc-800 animate-pulse"></div>
@@ -791,11 +826,35 @@ const availableStations = useMemo(() => {
                       <MapPinIcon className="w-6 h-6" />
                     </div>
                     <div>
-                      <h3 className="font-bold text-zinc-800 dark:text-white leading-tight truncate whitespace-nowrap" title={item.stationName}>
+                      <h3 className="font-bold text-zinc-800 dark:text-white leading-tight truncate whitespace-nowrap max-w-[150px] sm:max-w-[200px]" title={item.stationName}>
                         {truncateText(item.stationName)}
                       </h3>
                       <p className="text-[10px] font-black text-zinc-400 uppercase tracking-tighter whitespace-nowrap">{item.date}</p>
                     </div>
+                  </div>
+                  
+                  <div className="flex items-start gap-2">
+                    {/* Edit Option with 30-hour limitation - Moved to actions container */}
+                    {(item.collectedBy === user.email && (Date.now() - new Date(item.timestamp).getTime() < 30 * 60 * 60 * 1000)) && (
+                      <button 
+                        onClick={() => handleEditCollection(item)}
+                        className="p-2 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 rounded-xl hover:bg-indigo-100 transition-all shadow-sm border border-indigo-100 dark:border-indigo-800/50"
+                        title="Edit Collection"
+                      >
+                        <PencilSquareIcon className="w-4 h-4" />
+                      </button>
+                    )}
+
+                    {/* Admin Delete Action */}
+                    {role === UserRole.ADMIN && (
+                      <button 
+                        onClick={() => handleDeleteCollection(item.id)}
+                        className="p-2 text-zinc-300 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-900/20 rounded-xl transition-all"
+                        title="Delete Record"
+                      >
+                        <TrashIcon className="w-4 h-4" />
+                      </button>
+                    )}
                   </div>
                 </div>
 
@@ -836,7 +895,7 @@ const availableStations = useMemo(() => {
       {/* Entry Modal */}
       <AnimatePresence>
         {showEntryModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-zinc-950/40 backdrop-blur-sm">
+          <div className="fixed -top-10 left-0 w-full h-[calc(100vh+40px)] z-50 flex items-center justify-center p-4 bg-zinc-950/40 backdrop-blur-sm">
             <motion.div 
               initial={{ opacity: 0, scale: 0.95, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
@@ -845,10 +904,10 @@ const availableStations = useMemo(() => {
             >
               <div className="p-6 border-b border-zinc-50 dark:border-zinc-800 flex items-center justify-between">
                 <div>
-                  <h3 className="text-xl font-bold text-zinc-900 dark:text-white">Collect Station Cash</h3>
-                  <p className="text-xs font-semibold text-zinc-400">Record denominations received from station</p>
+                  <h3 className="text-xl font-bold text-zinc-900 dark:text-white">{editingCollectionId ? 'Edit Station Cash' : 'Collect Station Cash'}</h3>
+                  <p className="text-xs font-semibold text-zinc-400">{editingCollectionId ? 'Update denominations received from station' : 'Record denominations received from station'}</p>
                 </div>
-                <button onClick={() => setShowEntryModal(false)} className="p-2 hover:bg-zinc-50 dark:hover:bg-zinc-800 rounded-xl transition-colors">
+                <button onClick={() => { setShowEntryModal(false); resetForm(); }} className="p-2 hover:bg-zinc-50 dark:hover:bg-zinc-800 rounded-xl transition-colors">
                   <XMarkIcon className="w-6 h-6 text-zinc-400" />
                 </button>
               </div>
@@ -864,11 +923,11 @@ const availableStations = useMemo(() => {
                     />
                   </div>
                   <div className="space-y-2">
-                    <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest ml-1">Collected By</label>
-                    <div className="w-full px-5 py-4 bg-zinc-50 dark:bg-zinc-800/50 border border-transparent rounded-2xl text-sm font-bold text-zinc-900 dark:text-white flex items-center gap-3">
-                      <UserIcon className="w-5 h-5 text-indigo-500" />
-                      {user.email} (You)
-                    </div>
+                    <CustomDatePicker 
+                      label="Collection Date"
+                      value={selectedDate}
+                      onChange={(val) => setSelectedDate(val)}
+                    />
                   </div>
                 </div>
 
@@ -913,8 +972,8 @@ const availableStations = useMemo(() => {
                   disabled={!selectedStation || totalAmount <= 0 || isSubmitting}
                   className="w-full sm:w-auto px-10 py-4 bg-indigo-600 text-white rounded-2xl font-bold font-button shadow-lg shadow-indigo-200/50 dark:shadow-none hover:bg-indigo-700 disabled:opacity-50 transition-all flex items-center justify-center gap-2"
                 >
-                  {isSubmitting ? <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <PlusIcon className="w-5 h-5" />}
-                  Collect Cash
+                  {isSubmitting ? <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" /> : (editingCollectionId ? <PencilSquareIcon className="w-5 h-5" /> : <PlusIcon className="w-5 h-5" />)}
+                  {editingCollectionId ? 'Update Entry' : 'Collect Cash'}
                 </button>
               </div>
             </motion.div>
@@ -925,7 +984,7 @@ const availableStations = useMemo(() => {
       {/* Manage Groups Modal */}
       <AnimatePresence>
         {showGroupsModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-zinc-950/40 backdrop-blur-sm">
+          <div className="fixed -top-10 left-0 w-full h-[calc(100vh+40px)] z-50 flex items-center justify-center p-4 bg-zinc-950/40 backdrop-blur-sm">
             <motion.div 
               initial={{ opacity: 0, scale: 0.95, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}

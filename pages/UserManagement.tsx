@@ -26,6 +26,7 @@ import {
 } from "firebase/firestore";
 import CustomSelect from '../components/CustomSelect';
 import SortableHeader from '../components/SortableHeader';
+import PaginationFooter from '../components/PaginationFooter';
 
 interface ManagedUser {
   id: string;
@@ -89,6 +90,8 @@ const UserManagement: React.FC<UserManagementProps> = ({ isDarkMode, db }) => {
   const [itemsPerPage, setItemsPerPage] = useState(10);
   const [userDeleteConfirmId, setUserDeleteConfirmId] = useState<string | null>(null);
 
+  const [totalDatabaseCount, setTotalDatabaseCount] = useState(0);
+
   // Options for the Access Tier CustomSelect
   const roleOptions = [
     { value: UserRole.ADMIN, label: 'System Admin' },
@@ -100,21 +103,25 @@ const UserManagement: React.FC<UserManagementProps> = ({ isDarkMode, db }) => {
   ];
 
   useEffect(() => {
-    const usersQuery = query(collection(db, "users"), orderBy("invitedAt", "desc"));
-    const unsubscribe = onSnapshot(usersQuery, (snapshot) => {
-      const usersList = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      })) as ManagedUser[];
-      setUsers(usersList);
-      setLoading(false);
-    }, (error) => {
-      console.error("Firestore error:", error);
-      setErrorMsg("Permission sync error. Access might be restricted.");
-      setLoading(false);
-    });
-    return () => unsubscribe();
-  }, [db]);
+    const fetchUsers = async () => {
+      setLoading(true);
+      try {
+        const response = await fetch(`/api/getUsers?page=${currentPage}&count=${itemsPerPage}&search=${searchQuery}`);
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error);
+
+        setUsers(data.users);
+        setTotalDatabaseCount(data.total);
+      } catch (err) {
+        console.error("Failed to fetch users", err);
+        setErrorMsg("Failed to fetch users from backend.");
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchUsers();
+  }, [itemsPerPage, currentPage, searchQuery]);
 
   const handleInvite = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -231,8 +238,8 @@ const UserManagement: React.FC<UserManagementProps> = ({ isDarkMode, db }) => {
     return base;
   }, [users, searchQuery, sortConfig]);
 
-  const totalPages = Math.ceil(filteredUsers.length / itemsPerPage);
-  const paginatedData = filteredUsers.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
+  const totalPages = Math.ceil(totalDatabaseCount / itemsPerPage);
+  const paginatedData = users; // Already paginated from API
 
   return (
     <div className="space-y-6 lg:space-y-8 animate-in fade-in duration-500">
@@ -447,41 +454,14 @@ const UserManagement: React.FC<UserManagementProps> = ({ isDarkMode, db }) => {
             </tbody>
           </table>
         </div>
-        {totalPages > 0 && (
-          <div className="px-6 py-4 bg-zinc-50 dark:bg-zinc-950/30 border-t border-zinc-100 dark:border-zinc-800 flex items-center justify-between sticky bottom-0 z-10">
-            <div className="flex items-center gap-4">
-               <div className="text-xs font-bold text-zinc-500">Page {currentPage} of {totalPages}</div>
-               <div className="w-32">
-                 <CustomSelect 
-                   options={[
-                     { value: '10', label: '10 rows' },
-                     { value: '20', label: '20 rows' },
-                     { value: '50', label: '50 rows' }
-                   ]}
-                   value={String(itemsPerPage)}
-                   onChange={(val) => { setItemsPerPage(Number(val)); setCurrentPage(1); }}
-                   position="top"
-                 />
-               </div>
-            </div>
-            <div className="flex gap-2">
-              <button 
-                disabled={currentPage === 1} 
-                onClick={() => setCurrentPage(p => p - 1)} 
-                className="p-2 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-50 dark:hover:bg-zinc-800 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
-              >
-                <ChevronLeftIcon className="w-4 h-4" />
-              </button>
-              <button 
-                disabled={currentPage === totalPages} 
-                onClick={() => setCurrentPage(p => p + 1)} 
-                className="p-2 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-50 dark:hover:bg-zinc-800 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
-              >
-                <ChevronRightIcon className="w-4 h-4" />
-              </button>
-            </div>
-          </div>
-        )}
+        <PaginationFooter 
+          currentPage={currentPage}
+          totalPages={totalPages}
+          itemsPerPage={itemsPerPage}
+          onPageChange={setCurrentPage}
+          onItemsPerPageChange={(val) => { setItemsPerPage(val); setCurrentPage(1); }}
+          dataLength={totalDatabaseCount}
+        />
       </div>
     </div>
   );

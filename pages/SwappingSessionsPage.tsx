@@ -22,6 +22,7 @@ import { SwappingSession, FinancialSnapshot, StationGroup } from '@/types';
 import { toPng } from 'html-to-image';
 import { format } from 'date-fns';
 import CustomSelect from '@/components/CustomSelect';
+import { CustomDatePicker } from '@/components/CustomDatePicker';
 import SortableHeader from '@/components/SortableHeader';
 import PaginationFooter from '@/components/PaginationFooter';
 import { db } from '@/lib/firebase';
@@ -166,9 +167,38 @@ const SwappingSessionsPage: React.FC = () => {
   const [selectedStationsForGroup, setSelectedStationsForGroup] = useState<string[]>([]);
   const [isSavingGroup, setIsSavingGroup] = useState(false);
 
+  const [loading, setLoading] = useState(true);
+  const [totalDatabaseCount, setTotalDatabaseCount] = useState(0);
+  const [hasMore, setHasMore] = useState(false);
+
+  const fetchSessions = async () => {
+    setLoading(true);
+    try {
+      // For now, we only pass search to API. 
+      // Detailed filters are still client-side in the original code, 
+      // but they only work on the fetched sessions.
+      // To improve this, we would need to move ALL filters to API.
+      const response = await fetch(`/api/getSwappingSessions?page=${currentPage}&count=${itemsPerPage}&search=${searchQuery}`);
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error);
+
+      setSessions(data.sessions);
+      setTotalDatabaseCount(data.total);
+      setHasMore(currentPage < data.totalPages);
+    } catch (err) {
+      console.error("Error fetching sessions:", err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchSessions();
+  }, [currentPage, itemsPerPage, searchQuery]);
+
   useEffect(() => {
     // Listen to Station Groups
-    const unsubGroups = onSnapshot(collection(db, 'station_groups'), (snapshot) => {
+    const unsubGroups = onSnapshot(firestoreQuery(collection(db, 'station_groups'), where('type', '==', 'swapping_report')), (snapshot) => {
       const groups = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as StationGroup));
       setStationGroups(groups);
     });
@@ -182,26 +212,6 @@ const SwappingSessionsPage: React.FC = () => {
         ...uniqueNames.map(name => ({ value: name as string, label: name as string }))
       ]);
     });
-
-    // Initial fetch of sessions (limited)
-    const fetchSessions = async () => {
-      try {
-        const q = firestoreQuery(
-          collection(db, 'swapping_sessions'), 
-          firestoreOrderBy('timestamp', 'desc'), 
-          limit(1000)
-        );
-        const snapshot = await getDocs(q);
-        const sessionsData = snapshot.docs.map(doc => ({
-          _id: doc.id,
-          ...doc.data()
-        } as SwappingSession));
-        setSessions(sessionsData);
-      } catch (err) {
-        console.error("Error fetching sessions:", err);
-      }
-    };
-    fetchSessions();
 
     return () => {
       unsubGroups();
@@ -353,6 +363,7 @@ const SwappingSessionsPage: React.FC = () => {
       await addDoc(collection(db, 'station_groups'), {
         name: newGroupName.trim(),
         stationNames: selectedStationsForGroup,
+        type: 'swapping_report',
         createdAt: new Date().toISOString()
       });
       setNewGroupName('');
@@ -661,10 +672,7 @@ const SwappingSessionsPage: React.FC = () => {
     return result;
   }, [sessions, searchQuery, stationFilter, swapMode, penaltyPaid, swapAmountFilter, penaltyRangeFilter, sortConfig]);
 
-  const paginatedSessions = useMemo(() => {
-    const start = (currentPage - 1) * itemsPerPage;
-    return filteredSessions.slice(start, start + itemsPerPage);
-  }, [filteredSessions, currentPage, itemsPerPage]);
+  const paginatedSessions = filteredSessions;
 
   const formatTime = (ts: number) => {
     const date = new Date(ts * 1000);
@@ -982,22 +990,18 @@ const SwappingSessionsPage: React.FC = () => {
 
                   {dateRange === 'custom' && (
                     <>
-                      <div className="space-y-2">
-                        <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest ml-2">From Date</label>
-                        <input 
-                          type="date" 
+                      <div className="space-y-1">
+                        <CustomDatePicker 
+                          label="From Date"
                           value={customFromDate}
-                          onChange={(e) => setCustomFromDate(e.target.value)}
-                          className="w-full h-11 px-4 bg-zinc-50 dark:bg-zinc-950 border border-zinc-100 dark:border-zinc-800 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-500/20 dark:text-zinc-100 font-bold transition-all"
+                          onChange={(val) => setCustomFromDate(val)}
                         />
                       </div>
-                      <div className="space-y-2">
-                        <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest ml-2">To Date</label>
-                        <input 
-                          type="date" 
+                      <div className="space-y-1">
+                        <CustomDatePicker 
+                          label="To Date"
                           value={customToDate}
-                          onChange={(e) => setCustomToDate(e.target.value)}
-                          className="w-full h-11 px-4 bg-zinc-50 dark:bg-zinc-950 border border-zinc-100 dark:border-zinc-800 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-500/20 dark:text-zinc-100 font-bold transition-all"
+                          onChange={(val) => setCustomToDate(val)}
                         />
                       </div>
                     </>

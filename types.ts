@@ -466,12 +466,21 @@ export interface DriverPayment {
   created_at: string; // ISO
 }
 
+export interface ColumnGroup {
+  id: string;
+  name: string;
+  columnKeys: string[];
+  createdAt: string;
+  type?: string;
+}
+
 export interface StationGroup {
   id: string;
   name: string;
   stationIds?: string[];
   stationNames?: string[]; // For SwappingTransactionsPage
   createdAt: string;
+  type?: string;
 }
 
 export interface CashExpense {

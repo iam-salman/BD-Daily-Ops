@@ -54,10 +54,10 @@ const IDCardsPage: React.FC<IDCardsPageProps> = ({ isDarkMode, db, user, role, u
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<'All' | 'Not Generated' | 'Generated' | 'In Transit' | 'Delivered'>('All');
-
-  // Pagination State
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(12);
+  const [totalDatabaseCount, setTotalDatabaseCount] = useState(0);
+  const [hasMore, setHasMore] = useState(false);
 
   // Handover State
   const [selectedCard, setSelectedCard] = useState<Driver | null>(null);
@@ -92,13 +92,30 @@ const IDCardsPage: React.FC<IDCardsPageProps> = ({ isDarkMode, db, user, role, u
   // Delivery State
   const [showDeliveryModal, setShowDeliveryModal] = useState(false);
 
-  useEffect(() => {
-    // 1. Fetch Drivers
-    const unsubDrivers = onSnapshot(collection(db, "drivers"), (snap) => {
-      setDrivers(snap.docs.map(d => d.data() as Driver));
-    });
+  const fetchIDCards = async () => {
+    setLoading(true);
+    try {
+      const response = await fetch(`/api/getIDCards?page=${currentPage}&count=${itemsPerPage}&search=${searchQuery}`);
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error);
 
-    // 2. Fetch Master Records
+      // Map API 'cards' to 'drivers' state for compatibility with existing UI
+      setDrivers(data.cards);
+      setTotalDatabaseCount(data.total);
+      setHasMore(currentPage < data.totalPages);
+    } catch (err) {
+      console.error("Error fetching ID cards:", err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchIDCards();
+  }, [currentPage, searchQuery]);
+
+  useEffect(() => {
+    // 1. Fetch Master Records
     const unsubMaster = onSnapshot(collection(db, "drivers_master"), (snap) => {
       const records: Record<string, DriverMasterRecord> = {};
       snap.docs.forEach(d => {
@@ -128,21 +145,22 @@ const IDCardsPage: React.FC<IDCardsPageProps> = ({ isDarkMode, db, user, role, u
       setHandovers(snap.docs.map(d => ({ id: d.id, ...d.data() } as IDCardHandoverRequest)));
     });
 
-    return () => { unsubDrivers(); unsubMaster(); unsubHandovers(); };
+    return () => { unsubMaster(); unsubHandovers(); };
   }, [db]);
 
   const filteredCards = useMemo(() => {
     return drivers.filter(d => {
-      const master = masterRecords[d.driver_id];
+      const master = masterRecords[driverId(d)];
       const status = master?.id_card?.status || 'Not Generated';
-      
-      const matchesSearch = d.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
-                           d.driver_id.toLowerCase().includes(searchQuery.toLowerCase());
       const matchesStatus = statusFilter === 'All' || status === statusFilter;
-      
-      return matchesSearch && matchesStatus;
+      return matchesStatus;
     });
-  }, [drivers, masterRecords, searchQuery, statusFilter]);
+  }, [drivers, masterRecords, statusFilter]);
+
+  // Helper because driver_id has dynamic field name sometimes
+  function driverId(d: any) {
+    return d.driver_id || d.driverId || d.id;
+  }
 
   useEffect(() => {
     let timer: NodeJS.Timeout;
@@ -315,10 +333,7 @@ const IDCardsPage: React.FC<IDCardsPageProps> = ({ isDarkMode, db, user, role, u
     }
   };
 
-  const paginatedCards = useMemo(() => {
-    const start = (currentPage - 1) * itemsPerPage;
-    return filteredCards.slice(start, start + itemsPerPage);
-  }, [filteredCards, currentPage]);
+  const paginatedCards = filteredCards;
 
   useEffect(() => {
     setCurrentPage(1);
@@ -602,16 +617,16 @@ const IDCardsPage: React.FC<IDCardsPageProps> = ({ isDarkMode, db, user, role, u
 
       <PaginationFooter 
         currentPage={currentPage}
-        totalPages={Math.ceil(filteredCards.length / itemsPerPage)}
+        totalPages={Math.ceil(totalDatabaseCount / itemsPerPage)}
         onPageChange={setCurrentPage}
         onItemsPerPageChange={setItemsPerPage}
-        dataLength={filteredCards.length}
+        dataLength={totalDatabaseCount}
         itemsPerPage={itemsPerPage}
       />
 
       {/* Bulk Handover Modal */}
       {bulkMode && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+        <div className="fixed -top-10 left-0 w-full h-[calc(100vh+40px)] z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
           <div className="bg-white dark:bg-zinc-900 w-full max-w-lg rounded-[2.5rem] p-6 shadow-2xl animate-in zoom-in-95 duration-200 max-h-[95vh] overflow-y-auto scrollbar-hide">
             <div className="flex justify-between items-center mb-6">
               <div className="flex items-center gap-3">
@@ -828,7 +843,7 @@ const IDCardsPage: React.FC<IDCardsPageProps> = ({ isDarkMode, db, user, role, u
 
       {/* Handover Modal */}
       {showHandoverModal && selectedCard && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+        <div className="fixed -top-10 left-0 w-full h-[calc(100vh+40px)] z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
           <div className="bg-white dark:bg-zinc-900 w-full max-w-md rounded-[2.5rem] p-8 shadow-2xl animate-in zoom-in-95 duration-200">
             <h3 className="text-xl font-bold font-heading mb-2 text-zinc-900 dark:text-white">Initiate Handover</h3>
             <p className="text-sm text-zinc-500 mb-8 font-semibold">Transfer ID Card for {selectedCard.name}</p>
@@ -876,7 +891,7 @@ const IDCardsPage: React.FC<IDCardsPageProps> = ({ isDarkMode, db, user, role, u
 
       {/* PIN Verification Modal */}
       {showPinModal && activeHandover && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+        <div className="fixed -top-10 left-0 w-full h-[calc(100vh+40px)] z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
           <div className="bg-white dark:bg-zinc-900 w-full max-w-md rounded-[2.5rem] p-8 shadow-2xl animate-in zoom-in-95 duration-200">
             <div className="w-16 h-16 bg-indigo-100 dark:bg-indigo-900/30 rounded-2xl flex items-center justify-center text-indigo-600 dark:text-indigo-400 mx-auto mb-6">
               <ShieldCheckIcon className="w-8 h-8" />
@@ -919,7 +934,7 @@ const IDCardsPage: React.FC<IDCardsPageProps> = ({ isDarkMode, db, user, role, u
 
       {/* Delivery Confirmation Modal */}
       {showDeliveryModal && selectedCard && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+        <div className="fixed -top-10 left-0 w-full h-[calc(100vh+40px)] z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
           <div className="bg-white dark:bg-zinc-900 w-full max-w-md rounded-[2.5rem] p-8 shadow-2xl animate-in zoom-in-95 duration-200">
             <div className="w-16 h-16 bg-emerald-100 dark:bg-emerald-900/30 rounded-2xl flex items-center justify-center text-emerald-600 dark:text-emerald-400 mx-auto mb-6">
               <UserCircleIcon className="w-8 h-8" />

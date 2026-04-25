@@ -21,7 +21,7 @@ import CopyButton from '@/components/CopyButton';
 import PaginationFooter from '@/components/PaginationFooter';
 import SortableHeader from '@/components/SortableHeader';
 import { db } from '@/lib/firebase';
-import { collection, getDocs } from 'firebase/firestore';
+import { collection, getDocs, query, orderBy, limit, startAfter, where, endBefore, limitToLast } from 'firebase/firestore';
 import ExcelJS from 'exceljs';
 import { saveAs } from 'file-saver';
 
@@ -46,11 +46,9 @@ const SkeletonRow: React.FC<{ showPlan: boolean }> = ({ showPlan }) => (
   </tr>
 );
 
-let cachedDrivers: Driver[] | null = null;
-
 const DriversPage: React.FC<DriversPageProps> = ({ onDriverSelect, isDarkMode, role }) => {
-  const [drivers, setDrivers] = useState<Driver[]>(cachedDrivers || []);
-  const [loading, setLoading] = useState(!cachedDrivers);
+  const [drivers, setDrivers] = useState<Driver[]>([]);
+  const [loading, setLoading] = useState(true);
   const [isRefetching, setIsRefetching] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [notification, setNotification] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
@@ -65,31 +63,51 @@ const DriversPage: React.FC<DriversPageProps> = ({ onDriverSelect, isDarkMode, r
   const [itemsPerPage, setItemsPerPage] = useState(10);
   const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>({ key: 'onboarded_on', direction: 'desc' });
 
+  // Pagination cursor state
+  const [lastVisible, setLastVisible] = useState<any>(null);
+  const [firstVisible, setFirstVisible] = useState<any>(null);
+  const [pageHistory, setPageHistory] = useState<any[]>([]);
+  const [hasMore, setHasMore] = useState(true);
+  const [totalDatabaseCount, setTotalDatabaseCount] = useState(0);
+
   const isAdmin = role === UserRole.ADMIN;
 
   const fetchDrivers = async () => {
     setIsRefetching(true);
+    setLoading(true);
     try {
-      const querySnapshot = await getDocs(collection(db, 'drivers'));
-      const driverData: Driver[] = [];
-      querySnapshot.forEach((doc) => {
-        driverData.push(doc.data() as Driver);
-      });
+      const response = await fetch(`/api/getDrivers?page=${currentPage}&count=${itemsPerPage}&search=${searchQuery}&onboardingStatus=${onboardingFilter}`);
+      const data = await response.json();
       
-      setDrivers(driverData);
-      cachedDrivers = driverData;
+      if (!response.ok) throw new Error(data.error || 'Failed to fetch');
+
+      setDrivers(data.drivers);
+      setTotalDatabaseCount(data.total);
+      setHasMore(currentPage < data.totalPages);
     } catch (err) { 
-      console.error("Failed to fetch data from Firebase", err); 
-      setNotification({ message: 'Failed to fetch drivers from Firebase', type: 'error' });
+      console.error("Failed to fetch data from API", err); 
+      setNotification({ message: 'Failed to fetch drivers from backend', type: 'error' });
     } finally { 
       setLoading(false); 
       setIsRefetching(false); 
     }
   };
 
+  const handleNextPage = () => {
+    if (hasMore) {
+      setCurrentPage(prev => prev + 1);
+    }
+  };
+
+  const handlePrevPage = async () => {
+    if (currentPage > 1) {
+      setCurrentPage(prev => prev - 1);
+    }
+  };
+
   useEffect(() => { 
     fetchDrivers(); 
-  }, []);
+  }, [onboardingFilter, statusFilter, assignedFilter, sortConfig, itemsPerPage, currentPage, searchQuery]);
 
   const planOptions = useMemo(() => { const plans = Array.from(new Set(drivers.map(d => d.planData?.[0]?.plan_name).filter(Boolean))); return [{ value: 'all', label: 'All Plans' }, ...plans.map(p => ({ value: p!, label: p! }))]; }, [drivers]);
 
@@ -106,11 +124,14 @@ const DriversPage: React.FC<DriversPageProps> = ({ onDriverSelect, isDarkMode, r
       const q = searchQuery.toLowerCase(); 
       const vehicleNo = (d.vehicle_info?.vehicle_number || d.latest_swap?.vehicle_number || '').toLowerCase(); 
       if (q && !d.name?.toLowerCase().includes(q) && !d.phone?.includes(q) && !d.driver_id?.toLowerCase().includes(q) && !vehicleNo.includes(q)) { return false; } 
+      
+      // Client-side filtering to avoid needing complex server-side indexes
       if (statusFilter === 'active' && !d.is_active) return false; 
       if (statusFilter === 'inactive' && d.is_active) return false; 
       if (onboardingFilter !== 'all' && d.onboardingStatus !== onboardingFilter) return false; 
       if (assignedFilter === 'yes' && !d.assigned) return false; 
       if (assignedFilter === 'no' && d.assigned) return false; 
+      
       if (planFilter !== 'all' && d.planData?.[0]?.plan_name !== planFilter) return false; 
       if (dateFilter !== 'all') { 
         const onboardDate = new Date(d.onboarded_on * 1000); 
@@ -123,35 +144,10 @@ const DriversPage: React.FC<DriversPageProps> = ({ onDriverSelect, isDarkMode, r
       return true; 
     });
 
-    if (sortConfig) {
-      base.sort((a, b) => {
-        const getNestedValue = (obj: any, path: string) => {
-          if (path === 'vehicle_number') {
-            return obj.vehicle_info?.vehicle_number || obj.latest_swap?.vehicle_number || '';
-          }
-          if (path === 'plan_name') {
-            return obj.planData?.[0]?.plan_name || '';
-          }
-          return path.split(".").reduce((acc, part) => acc && acc[part], obj);
-        };
-
-        let aVal = getNestedValue(a, sortConfig.key);
-        let bVal = getNestedValue(b, sortConfig.key);
-
-        if (aVal === undefined || aVal === null) aVal = "";
-        if (bVal === undefined || bVal === null) bVal = "";
-
-        if (typeof aVal === "string") aVal = aVal.toLowerCase();
-        if (typeof bVal === "string") bVal = bVal.toLowerCase();
-
-        if (aVal < bVal) return sortConfig.direction === "asc" ? -1 : 1;
-        if (aVal > bVal) return sortConfig.direction === "asc" ? 1 : -1;
-        return 0;
-      });
-    }
-
+    // Sorting is now handled server-side for the main fetch, 
+    // but we keep it here for any remaining client-side results
     return base;
-  }, [drivers, searchQuery, statusFilter, onboardingFilter, assignedFilter, planFilter, dateFilter, sortConfig]);
+  }, [drivers, searchQuery, planFilter, dateFilter]);
 
   const handleExportExcel = async () => {
     if (filteredData.length === 0) {
@@ -392,8 +388,9 @@ const DriversPage: React.FC<DriversPageProps> = ({ onDriverSelect, isDarkMode, r
   };
 
 
-  const totalPages = Math.ceil(filteredData.length / itemsPerPage);
-  const paginatedData = filteredData.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
+  const totalPages = 0; // We don't know total pages easily with offset-less pagination, but we can use hasMore
+  const paginatedData = filteredData; // Already paginated by repository fetch
+
   const formatCurrency = (amount: number) => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(amount);
   const formatDate = (unix: number) => {
     if (!unix) return '--';
@@ -417,14 +414,14 @@ const DriversPage: React.FC<DriversPageProps> = ({ onDriverSelect, isDarkMode, r
           <div className="flex flex-wrap items-center gap-3">
             <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 text-[10px] sm:text-xs font-bold border border-indigo-100 dark:border-indigo-800">
               <UsersIcon className="w-3.5 h-3.5" />
-              <span>{drivers.length} Registered Drivers</span>
+              <span>Registered Drivers</span>
             </div>
           </div>
         </div>
         <div className="flex gap-2">
           <button 
             onClick={handleExportExcel}
-            disabled={isExporting || filteredData.length === 0}
+            disabled={isExporting || drivers.length === 0}
             className="flex items-center justify-center p-3 sm:px-5 sm:py-3 rounded-2xl font-bold bg-white dark:bg-zinc-800 text-zinc-700 dark:text-zinc-200 border border-zinc-200 dark:border-zinc-700 shadow-sm transition-all hover:bg-zinc-50 dark:hover:bg-zinc-700 disabled:opacity-50 shrink-0 outline-none focus:ring-2 focus:ring-indigo-500"
             title="Export to Excel"
           >
@@ -432,7 +429,7 @@ const DriversPage: React.FC<DriversPageProps> = ({ onDriverSelect, isDarkMode, r
             <span className="hidden sm:inline text-sm">Report</span>
           </button>
           <button 
-            onClick={fetchDrivers} 
+            onClick={() => fetchDrivers()} 
             disabled={isRefetching} 
             className="flex items-center justify-center p-3 sm:px-5 sm:py-3 rounded-2xl font-bold bg-gradient-to-r from-indigo-600 to-violet-600 text-white shadow-lg shadow-indigo-200 dark:shadow-none transition-all hover:scale-105 active:scale-95 disabled:opacity-50 shrink-0"
           >
@@ -517,20 +514,14 @@ const DriversPage: React.FC<DriversPageProps> = ({ onDriverSelect, isDarkMode, r
           </table>
         </div>
         
-        {/* Pagination Footer */}
-        {totalPages > 0 && (
-          <PaginationFooter
-            currentPage={currentPage}
-            totalPages={totalPages}
-            itemsPerPage={itemsPerPage}
-            onPageChange={setCurrentPage}
-            onItemsPerPageChange={(val) => {
-              setItemsPerPage(val);
-              setCurrentPage(1);
-            }}
-            dataLength={filteredData.length}
-          />
-        )}
+        <PaginationFooter 
+          currentPage={currentPage}
+          totalPages={Math.ceil(totalDatabaseCount / itemsPerPage)}
+          itemsPerPage={itemsPerPage}
+          onPageChange={setCurrentPage}
+          onItemsPerPageChange={(val) => { setItemsPerPage(val); setCurrentPage(1); }}
+          dataLength={totalDatabaseCount}
+        />
       </div>
     </div>
   );

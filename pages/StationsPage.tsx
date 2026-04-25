@@ -34,48 +34,35 @@ const StationsPage: React.FC<StationsPageProps> = ({ isDarkMode }) => {
   const [loading, setLoading] = useState(true);
   const [notification, setNotification] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
-  const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' }>({ key: 'name', direction: 'asc' });
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(12);
+  const [totalDatabaseCount, setTotalDatabaseCount] = useState(0);
+  const [hasMore, setHasMore] = useState(false);
+
+  const fetchStations = async () => {
+    setLoading(true);
+    try {
+      const response = await fetch(`/api/getStations?page=${currentPage}&count=${itemsPerPage}&search=${searchQuery}`);
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error);
+
+      setStations(data.stations);
+      setTotalDatabaseCount(data.total);
+      setHasMore(currentPage < data.totalPages);
+    } catch (err) {
+      console.error("Error fetching stations:", err);
+      setNotification({ message: 'Failed to fetch stations', type: 'error' });
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    const q = query(collection(db, 'swap_stations'));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const stationsData = snapshot.docs.map(doc => ({
-        ...doc.data(),
-        _id: doc.id
-      } as any));
-      setStations(stationsData);
-      setLoading(false);
-    }, (error) => {
-      console.error("Error fetching stations:", error);
-      setNotification({ message: 'Failed to fetch stations from Firebase', type: 'error' });
-      setLoading(false);
-    });
+    fetchStations();
+  }, [currentPage, searchQuery]);
 
-    return () => unsubscribe();
-  }, []);
-
-  const filteredData = useMemo(() => {
-    let data = stations.filter(s => 
-      (s.name || '').toLowerCase().includes(searchQuery.toLowerCase()) || 
-      (s.dealer_id || '').toLowerCase().includes(searchQuery.toLowerCase())
-    );
-
-    data.sort((a, b) => {
-      const aVal = (a as any)[sortConfig.key] || '';
-      const bVal = (b as any)[sortConfig.key] || '';
-
-      if (aVal < bVal) return sortConfig.direction === "asc" ? -1 : 1;
-      if (aVal > bVal) return sortConfig.direction === "asc" ? 1 : -1;
-      return 0;
-    });
-
-    return data;
-  }, [stations, searchQuery, sortConfig]);
-
-  const totalPages = Math.ceil(filteredData.length / itemsPerPage);
-  const paginatedData = filteredData.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
+  const totalPages = Math.ceil(totalDatabaseCount / itemsPerPage);
+  const paginatedData = stations;
   
   const openMap = (e: React.MouseEvent, coords: [number, number]) => { 
     e.stopPropagation(); 
@@ -179,7 +166,7 @@ const StationsPage: React.FC<StationsPageProps> = ({ isDarkMode }) => {
             setItemsPerPage(val);
             setCurrentPage(1);
           }}
-          dataLength={filteredData.length}
+          dataLength={totalDatabaseCount}
         />
       </div>
     </div>

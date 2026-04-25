@@ -37,6 +37,7 @@ import {
 } from 'firebase/firestore';
 import { Ticket, TicketStatus, UserRole, Driver, TicketReply, TICKET_CLOSING_REASONS, TicketClosingReason } from '../types';
 import CustomSelect from '../components/CustomSelect';
+import { CustomDatePicker } from '../components/CustomDatePicker';
 import { PaperAirplaneIcon } from '@heroicons/react/24/solid';
 
 interface TicketsPageProps {
@@ -65,11 +66,17 @@ const TicketsPage: React.FC<TicketsPageProps> = ({ isDarkMode, user, role, db, u
   const [showDetailModal, setShowDetailModal] = useState<Ticket | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<TicketStatus | 'All'>('All');
+  const [dateRange, setDateRange] = useState('today');
+  const [customStartDate, setCustomStartDate] = useState('');
+  const [customEndDate, setCustomEndDate] = useState('');
   const [techFilter, setTechFilter] = useState<'All' | 'Technician' | 'Non-Technician'>('All');
   const [compFilter, setCompFilter] = useState<'All' | 'Compensation' | 'Non-Compensation'>('All');
   const [categoryFilter, setCategoryFilter] = useState('All');
   const [subCategoryFilter, setSubCategoryFilter] = useState('All');
   const [showFilters, setShowFilters] = useState(false);
+
+  // Pagination State - Removed
+  const [totalDatabaseCount, setTotalDatabaseCount] = useState(0);
 
   // Create Ticket Form State
   const [driverSearch, setDriverSearch] = useState('');
@@ -139,16 +146,30 @@ const TicketsPage: React.FC<TicketsPageProps> = ({ isDarkMode, user, role, db, u
   }, [showDetailModal, activeTab, db]);
 
   useEffect(() => {
-    const q = query(collection(db, 'tickets'), orderBy('createdAt', 'desc'));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const ticketsData = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      })) as Ticket[];
-      setTickets(ticketsData);
-      setLoading(false);
-    });
+    const fetchTickets = async () => {
+      setLoading(true);
+      try {
+        let url = `/api/getTickets?status=${statusFilter}&search=${searchQuery}&dateRange=${dateRange}`;
+        if (dateRange === 'custom' && customStartDate && customEndDate) {
+          url += `&startDate=${customStartDate}&endDate=${customEndDate}`;
+        }
+        const response = await fetch(url);
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error);
 
+        setTickets(data.tickets);
+        setTotalDatabaseCount(data.total);
+      } catch (err) {
+        console.error("Failed to fetch tickets", err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchTickets();
+  }, [statusFilter, searchQuery, dateRange, customStartDate, customEndDate]);
+
+  useEffect(() => {
     // Fetch Technicians
     const techQuery = query(collection(db, 'users'), where('role', '==', UserRole.TECHNICIAN));
     getDocs(techQuery).then(snapshot => {
@@ -158,8 +179,6 @@ const TicketsPage: React.FC<TicketsPageProps> = ({ isDarkMode, user, role, db, u
       }));
       setTechnicians(techList);
     });
-
-    return () => unsubscribe();
   }, [db]);
 
   const handleDriverSearch = async () => {
@@ -372,7 +391,8 @@ const TicketsPage: React.FC<TicketsPageProps> = ({ isDarkMode, user, role, db, u
         t.driverName.toLowerCase().includes(searchQuery.toLowerCase()) ||
         t.driverId.toLowerCase().includes(searchQuery.toLowerCase()) ||
         t.vehicleNumber.toLowerCase().includes(searchQuery.toLowerCase());
-      const matchesStatus = statusFilter === 'All' || t.status === statusFilter;
+      
+      // statusFilter is handled server-side now
       
       const isTechnicianRelated = !!t.technicianId;
       const matchesTech = techFilter === 'All' || 
@@ -387,9 +407,11 @@ const TicketsPage: React.FC<TicketsPageProps> = ({ isDarkMode, user, role, db, u
       const matchesCategory = categoryFilter === 'All' || t.category === categoryFilter;
       const matchesSubCategory = subCategoryFilter === 'All' || t.subCategory === subCategoryFilter;
 
-      return matchesSearch && matchesStatus && matchesTech && matchesComp && matchesCategory && matchesSubCategory;
+      return matchesSearch && matchesTech && matchesComp && matchesCategory && matchesSubCategory;
     });
-  }, [tickets, searchQuery, statusFilter, techFilter, compFilter, categoryFilter, subCategoryFilter]);
+  }, [tickets, searchQuery, techFilter, compFilter, categoryFilter, subCategoryFilter, role, user.email]);
+
+  const displayTickets = filteredTickets; // Currently paginated from server for status.
 
   const exportToExcel = async () => {
     const workbook = new ExcelJS.Workbook();
@@ -568,6 +590,22 @@ const TicketsPage: React.FC<TicketsPageProps> = ({ isDarkMode, user, role, db, u
               <CustomSelect
                 className="!bg-white dark:!bg-zinc-900 !border-zinc-200 dark:!border-zinc-800 h-11 !rounded-2xl !text-sm"
                 options={[
+                  { value: 'today', label: 'Today' },
+                  { value: 'yesterday', label: 'Yesterday' },
+                  { value: 'last7days', label: 'Last 7 Days' },
+                  { value: 'last30days', label: 'Last 30 Days' },
+                  { value: 'thisMonth', label: 'This Month' },
+                  { value: 'lastMonth', label: 'Last Month' },
+                  { value: 'custom', label: 'Custom' }
+                ]}
+                value={dateRange}
+                onChange={(val) => setDateRange(val as any)}
+              />
+            </div>
+            <div className="w-40 sm:w-48">
+              <CustomSelect
+                className="!bg-white dark:!bg-zinc-900 !border-zinc-200 dark:!border-zinc-800 h-11 !rounded-2xl !text-sm"
+                options={[
                   { value: 'All', label: 'All Status' },
                   { value: 'Open', label: 'Open' },
                   { value: 'Initiated Close', label: 'Initiated Close' },
@@ -580,6 +618,25 @@ const TicketsPage: React.FC<TicketsPageProps> = ({ isDarkMode, user, role, db, u
             </div>
           </div>
         </div>
+
+        {dateRange === 'custom' && (
+          <div className="flex gap-4 p-4 bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200 dark:border-zinc-800 animate-in fade-in duration-300">
+            <div className="flex-1">
+              <CustomDatePicker 
+                label="Start Date"
+                value={customStartDate}
+                onChange={(val) => setCustomStartDate(val)}
+              />
+            </div>
+            <div className="flex-1">
+              <CustomDatePicker 
+                label="End Date"
+                value={customEndDate}
+                onChange={(val) => setCustomEndDate(val)}
+              />
+            </div>
+          </div>
+        )}
 
         {showFilters && (
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4 p-6 bg-white dark:bg-zinc-900 rounded-[2rem] border border-zinc-200 dark:border-zinc-800 animate-in slide-in-from-top-4 duration-300">
@@ -648,7 +705,7 @@ const TicketsPage: React.FC<TicketsPageProps> = ({ isDarkMode, user, role, db, u
             <p className="text-lg font-bold text-zinc-900 dark:text-white">No tickets found</p>
           </div>
         ) : (
-          filteredTickets.map(ticket => (
+          displayTickets.map(ticket => (
             <div 
               key={ticket.id}
               onClick={() => {
@@ -716,9 +773,11 @@ const TicketsPage: React.FC<TicketsPageProps> = ({ isDarkMode, user, role, db, u
         )}
       </div>
 
+      {/* Pagination removed */}
+
       {/* Create Ticket Modal */}
       {showCreateModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-zinc-950/60 backdrop-blur-sm animate-in fade-in duration-300">
+        <div className="fixed -top-10 left-0 w-full h-[calc(100vh+40px)] z-50 flex items-center justify-center p-4 bg-zinc-950/60 backdrop-blur-sm animate-in fade-in duration-300">
           <div className="bg-white dark:bg-zinc-900 w-full max-w-2xl rounded-[2.5rem] shadow-2xl overflow-hidden flex flex-col max-h-[90vh] animate-in zoom-in-95 duration-300">
             <div className="p-6 border-b border-zinc-100 dark:border-zinc-800 flex items-center justify-between">
               <h3 className="text-xl font-bold text-zinc-900 dark:text-white">Create Support Ticket</h3>
@@ -875,7 +934,7 @@ const TicketsPage: React.FC<TicketsPageProps> = ({ isDarkMode, user, role, db, u
 
       {/* Ticket Detail / Closing Modal */}
       {showDetailModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-zinc-950/60 backdrop-blur-sm animate-in fade-in duration-300">
+        <div className="fixed -top-10 left-0 w-full h-[calc(100vh+40px)] z-50 flex items-center justify-center p-2 sm:p-4 bg-zinc-950/60 backdrop-blur-sm animate-in fade-in duration-300">
           <div className="bg-white dark:bg-zinc-900 w-full max-w-xl rounded-3xl sm:rounded-[2.5rem] shadow-2xl overflow-hidden flex flex-col max-h-[95vh] sm:max-h-[90vh] animate-in zoom-in-95 duration-300 border border-zinc-200 dark:border-zinc-800">
             <div className="p-5 sm:p-8 border-b border-zinc-100 dark:border-zinc-800 flex items-center justify-between bg-zinc-50/50 dark:bg-zinc-900/50">
               <div className="flex items-center gap-3 sm:gap-4">

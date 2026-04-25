@@ -240,9 +240,44 @@
         "timestamp": { "type": "string" }
       },
       "required": ["stationId", "operatorId", "denominations", "totalAmount", "date", "timestamp"]
+    },
+    "StationGroup": {
+      "title": "Station Group",
+      "description": "A named group of swap stations",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "stationIds": { "type": "array", "items": { "type": "string" } },
+        "stationNames": { "type": "array", "items": { "type": "string" } },
+        "createdAt": { "type": "string" },
+        "type": { "type": "string", "description": "The category or context of this group (e.g., swapping_report, cash_report)" }
+      },
+      "required": ["id", "name"]
+    },
+    "BatteryColumnGroup": {
+      "title": "Battery Column Group",
+      "description": "A named group of battery columns for lookup",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "columnKeys": { "type": "array", "items": { "type": "string" } },
+        "createdAt": { "type": "string" },
+        "type": { "type": "string" }
+      },
+      "required": ["id", "name", "columnKeys"]
     }
   },
   "firestore": {
+    "/station_groups/{groupId}": {
+      "schema": "StationGroup",
+      "description": "User-defined groups of stations for reporting"
+    },
+    "/battery_column_groups/{groupId}": {
+      "schema": "BatteryColumnGroup",
+      "description": "User-defined groups of columns for battery lookup"
+    },
     "/station_daily_swaps/{statId}": {
       "schema": "StationDailySwap",
       "description": "Collection of daily swap statistics for capacity planning"

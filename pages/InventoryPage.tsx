@@ -21,7 +21,9 @@ import {
 import { collection, doc, onSnapshot, setDoc, addDoc, updateDoc, query, where, writeBatch, orderBy, Firestore, increment, getDocs } from "firebase/firestore";
 import { User } from "firebase/auth";
 import CustomSelect from '../components/CustomSelect';
+import { CustomDatePicker } from '../components/CustomDatePicker';
 import SortableHeader from '../components/SortableHeader';
+import PaginationFooter from '../components/PaginationFooter';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
 
 interface InventoryPageProps {
@@ -453,9 +455,34 @@ const InventoryPage: React.FC<InventoryPageProps> = ({ isDarkMode, db, user }) =
   // Bulk Upload State
   const [bulkGridData, setBulkGridData] = useState<string[][]>([]);
   const [bulkSaving, setBulkSaving] = useState(false);
+  const [localItems, setLocalItems] = useState<InventoryItem[]>([]);
+  const [showLocalOnly, setShowLocalOnly] = useState(false);
+
+  // Pagination State for Firestore
+  const [lastVisible, setLastVisible] = useState<any>(null);
+  const [firstVisible, setFirstVisible] = useState<any>(null);
+  const [pageHistory, setPageHistory] = useState<any[]>([]);
+  const [hasMore, setHasMore] = useState(true);
+  const [totalDatabaseCount, setTotalDatabaseCount] = useState(0);
 
   // Derived State (Moved up to avoid used before declaration)
   const activeSchema = schemas.find(s => s.id === activeTypeId);
+
+  // --- 0. Load Local Items ---
+  useEffect(() => {
+    const stored = localStorage.getItem('inventory_local_items');
+    if (stored) {
+      try {
+        setLocalItems(JSON.parse(stored));
+      } catch (e) {
+        console.error("Failed to parse local items", e);
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    localStorage.setItem('inventory_local_items', JSON.stringify(localItems));
+  }, [localItems]);
 
   // --- 1. Load Schemas ---
   useEffect(() => {
@@ -481,24 +508,41 @@ const InventoryPage: React.FC<InventoryPageProps> = ({ isDarkMode, db, user }) =
     return () => unsub();
   }, [db]);
 
-  // --- 2. Load Items ---
+  // --- 2. Load Items (PAGINATED) ---
   useEffect(() => {
-    let q;
-    // IF FLOW MODE: Fetch ALL items to allow global aggregation
-    if (viewMode === 'flow') {
-      q = query(collection(db, "inventory_items"));
-    } else {
-      // IF STOCK MODE: Fetch only active type
-      if (!activeTypeId) return;
-      q = query(collection(db, "inventory_items"), where("typeId", "==", activeTypeId));
-    }
+    if (viewMode === 'flow' || !activeTypeId) return;
 
-    const unsub = onSnapshot(q, (snapshot) => {
-      const loadedItems = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as InventoryItem));
-      setItems(loadedItems);
-    });
-    return () => unsub();
-  }, [activeTypeId, viewMode, db]);
+    const fetchItems = async () => {
+      setLoading(true);
+      try {
+        const response = await fetch(`/api/getInventory?typeId=${activeTypeId}&page=${currentPage}&count=${itemsPerPage}&search=${searchQuery}`);
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error);
+
+        setItems(data.items);
+        setTotalDatabaseCount(data.total);
+        setHasMore(currentPage < data.totalPages);
+      } catch (err) {
+        console.error("Failed to fetch inventory", err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchItems();
+  }, [activeTypeId, viewMode, itemsPerPage, currentPage, searchQuery]);
+
+  const handleNextPage = () => {
+    if (hasMore) {
+      setCurrentPage(prev => prev + 1);
+    }
+  };
+
+  const handlePrevPage = () => {
+    if (currentPage > 1) {
+      setCurrentPage(prev => prev - 1);
+    }
+  };
 
   // --- 3. Load Logs (For Flow View Dates) ---
   useEffect(() => {
@@ -783,9 +827,8 @@ const InventoryPage: React.FC<InventoryPageProps> = ({ isDarkMode, db, user }) =
     setBulkSaving(true);
     
     try {
-      const batch = writeBatch(db);
+      const newLocalItems: InventoryItem[] = [];
       let count = 0;
-      const batchLimit = 250; 
 
       for (const row of bulkGridData) {
         if (row.every(cell => !cell.trim())) continue;
@@ -801,68 +844,35 @@ const InventoryPage: React.FC<InventoryPageProps> = ({ isDarkMode, db, user }) =
 
         if (!isValid) continue;
 
-        const firstColKey = activeSchema.columns[0].key;
         const firstColVal = row[0]?.trim();
-
-        // Check if item already exists with this ID (and optionally date if provided in row)
-        // For simplicity and reliability, we match by the first column (ID/Serial)
-        const existingItem = items.find(it => it.typeId === activeTypeId && it.data[firstColKey] === firstColVal);
-
-        if (existingItem) {
-          // UPDATE / APPEND
-          const mergedData = { ...existingItem.data, ...itemData };
-          batch.update(doc(db, "inventory_items", existingItem.id), {
-            data: mergedData,
-            lastMoved: new Date().toISOString(),
-            updatedBy: user.email
-          });
-
-          const logRef = doc(collection(db, "inventory_logs"));
-          batch.set(logRef, {
-            itemId: existingItem.id,
-            typeId: activeTypeId,
-            action: 'UPDATE',
-            data: itemData,
-            timestamp: new Date().toISOString(),
-            user: user.email
-          });
-        } else {
-          // NEW ITEM
-          const newDocRef = doc(collection(db, "inventory_items"));
-          batch.set(newDocRef, {
-            typeId: activeTypeId,
-            data: itemData,
-            lastMoved: new Date().toISOString(),
-            updatedBy: user.email
-          });
-
-          const logRef = doc(collection(db, "inventory_logs"));
-          batch.set(logRef, {
-            itemId: newDocRef.id,
-            typeId: activeTypeId,
-            action: 'INWARD_NEW',
-            data: itemData,
-            timestamp: new Date().toISOString(),
-            user: user.email
-          });
-        }
         
+        // Save to temporary local storage state instead of Firebase
+        const localItem: InventoryItem = {
+          id: `local_${Date.now()}_${count}`,
+          typeId: activeTypeId,
+          data: itemData,
+          status: 'in stock',
+          lastMoved: new Date().toISOString(),
+          updatedBy: `${user.email} (Local)`
+        };
+        
+        newLocalItems.push(localItem);
         count++;
-        if (count >= batchLimit) break;
       }
 
       if (count > 0) {
-        await batch.commit();
-        alert(`Successfully imported ${count} items.`);
+        setLocalItems(prev => [...prev, ...newLocalItems]);
+        alert(`Successfully stored ${count} items in local storage (temporary).`);
         setShowBulkModal(false);
         setBulkGridData([]);
+        setShowLocalOnly(true); // Automatically switch to local view to see them
       } else {
         alert("No valid data found.");
       }
 
     } catch (e) {
       console.error("Bulk save error", e);
-      alert("Failed to save bulk data.");
+      alert("Failed to save local bulk data.");
     } finally {
       setBulkSaving(false);
     }
@@ -885,9 +895,10 @@ const InventoryPage: React.FC<InventoryPageProps> = ({ isDarkMode, db, user }) =
   // --- Filtered Display (Sorting & Filtering) ---
   
   const filteredItems = useMemo(() => {
-    let result = items;
+    let result = showLocalOnly ? localItems.filter(i => i.typeId === activeTypeId) : items;
 
-    // Search
+    // Search (Note: in server-side pagination, we'd ideally search via Firestore, but for equality filters we can do it here if data is small, 
+    // or we'd need a separate search implementation. For now, we apply it to the fetched page + local items)
     if (searchQuery) {
       const lowerQ = searchQuery.toLowerCase();
       result = result.filter(item => {
@@ -908,7 +919,7 @@ const InventoryPage: React.FC<InventoryPageProps> = ({ isDarkMode, db, user }) =
 
     // Sorting
     if (stockSortConfig.direction !== 'none') {
-      result.sort((a, b) => {
+      result = [...result].sort((a, b) => { // Avoid mutating original items if they come from snapshot
         let aValue: any;
         let bValue: any;
 
@@ -929,9 +940,9 @@ const InventoryPage: React.FC<InventoryPageProps> = ({ isDarkMode, db, user }) =
         if (aValue > bValue) return stockSortConfig.direction === 'asc' ? 1 : -1;
         return 0;
       });
-    } else {
-      // Default Sort: Latest received date first
-      result.sort((a, b) => {
+    } else if (showLocalOnly) {
+      // Default Sort for local: Latest received date first
+      result = [...result].sort((a, b) => {
         const getTimestamp = (item: InventoryItem) => {
           const d1 = parseFlexibleDate(item.data['received_date']);
           if (d1 > 0) return d1;
@@ -944,7 +955,7 @@ const InventoryPage: React.FC<InventoryPageProps> = ({ isDarkMode, db, user }) =
     }
 
     return result;
-  }, [items, searchQuery, stockFilters, stockSortConfig]);
+  }, [items, localItems, showLocalOnly, searchQuery, stockFilters, stockSortConfig, activeTypeId]);
 
   // --- Derived Lists for Filters ---
   const manufacturerOptions = useMemo(() => {
@@ -1076,51 +1087,11 @@ const InventoryPage: React.FC<InventoryPageProps> = ({ isDarkMode, db, user }) =
   }, [items, logs, viewMode, schemas, flowFilters, searchQuery, flowSortConfig]);
 
   // --- Pagination Logic ---
-  const sourceDataLength = viewMode === 'stock' ? filteredItems.length : groupedFlowItems.length;
+  const sourceDataLength = viewMode === 'stock' ? (showLocalOnly ? filteredItems.length : totalDatabaseCount) : groupedFlowItems.length;
   const totalPages = Math.ceil(sourceDataLength / itemsPerPage);
   
-  const paginatedStockItems = viewMode === 'stock' ? filteredItems.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage) : [];
+  const displayItems = viewMode === 'stock' ? filteredItems : []; // In paginated mode, filteredItems is already spliced by query
   const paginatedFlowGroups = viewMode === 'flow' ? groupedFlowItems.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage) : [];
-
-  const PaginationFooter = () => {
-    if (totalPages <= 0) return null;
-    return (
-      <div className="px-6 py-4 bg-zinc-50 dark:bg-zinc-900 border-t border-zinc-200 dark:border-zinc-800 flex items-center justify-between sticky bottom-0 z-10">
-        <div className="flex items-center gap-4">
-           <div className="text-xs font-bold text-zinc-500">Page {currentPage} of {totalPages}</div>
-           <div className="w-32">
-             <CustomSelect 
-               options={[
-                 { value: '10', label: '10 rows' },
-                 { value: '20', label: '20 rows' },
-                 { value: '50', label: '50 rows' }
-               ]}
-               value={String(itemsPerPage)}
-               onChange={(val) => { setItemsPerPage(Number(val)); setCurrentPage(1); }}
-               position="top"
-             />
-           </div>
-        </div>
-        
-        <div className="flex gap-2">
-          <button 
-            disabled={currentPage === 1} 
-            onClick={() => setCurrentPage(p => p - 1)} 
-            className="p-2 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-50 dark:hover:bg-zinc-800 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
-          >
-            <ChevronLeftIcon className="w-4 h-4" />
-          </button>
-          <button 
-            disabled={currentPage === totalPages} 
-            onClick={() => setCurrentPage(p => p + 1)} 
-            className="p-2 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-50 dark:hover:bg-zinc-800 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
-          >
-            <ChevronRightIcon className="w-4 h-4" />
-          </button>
-        </div>
-      </div>
-    );
-  };
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500 pb-24">
@@ -1132,6 +1103,27 @@ const InventoryPage: React.FC<InventoryPageProps> = ({ isDarkMode, db, user }) =
         </div>
         
         <div className="flex flex-col sm:flex-row gap-3 items-center">
+          {localItems.length > 0 && viewMode === 'stock' && (
+            <div className="flex items-center gap-2 bg-amber-50 dark:bg-amber-900/10 px-3 py-1.5 rounded-2xl border border-amber-100 dark:border-amber-800 shadow-sm transition-all hover:shadow-md">
+              <span className="text-[10px] font-black text-amber-600 dark:text-amber-400 uppercase tracking-widest">{localItems.length} Temporary Items</span>
+              <button 
+                onClick={() => setShowLocalOnly(!showLocalOnly)}
+                className={`px-3 py-1 rounded-xl text-[10px] font-black transition-all ${showLocalOnly ? 'bg-amber-600 text-white shadow-lg' : 'bg-white dark:bg-zinc-800 text-amber-600 dark:text-amber-400 hover:bg-amber-100 dark:hover:bg-amber-900/30'}`}
+              >
+                {showLocalOnly ? 'VIEW MAIN' : 'VIEW TEMPORARY'}
+              </button>
+              <button 
+                 onClick={() => {
+                   if(confirm("Confirm to clear all temporary items?")) setLocalItems([]);
+                 }}
+                 className="p-1 hover:text-rose-500 transition-colors"
+                 title="Clear Local Storage"
+              >
+                <TrashIcon className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          )}
+          
           <div className="flex bg-zinc-100 dark:bg-zinc-800 p-1 rounded-2xl h-11 shrink-0">
              <button 
                onClick={() => setViewMode('stock')}
@@ -1309,22 +1301,18 @@ const InventoryPage: React.FC<InventoryPageProps> = ({ isDarkMode, db, user }) =
                     value={flowFilters.manufacturer} 
                     onChange={(val) => setFlowFilters({...flowFilters, manufacturer: val as string})} 
                  />
-                 <div>
-                    <label className="text-[10px] font-bold uppercase tracking-widest text-zinc-500 mb-2 block">Start Date</label>
-                    <input 
-                       type="date" 
+                 <div className="md:pt-1">
+                    <CustomDatePicker 
+                       label="Start Date" 
                        value={flowFilters.startDate}
-                       onChange={(e) => setFlowFilters({...flowFilters, startDate: e.target.value})}
-                       className="w-full px-4 py-2.5 bg-zinc-50 dark:bg-zinc-800 border border-transparent rounded-xl text-xs font-bold outline-none focus:ring-2 focus:ring-indigo-500/20 dark:text-white"
+                       onChange={(val) => setFlowFilters({...flowFilters, startDate: val})}
                     />
                  </div>
-                 <div>
-                    <label className="text-[10px] font-bold uppercase tracking-widest text-zinc-500 mb-2 block">End Date</label>
-                    <input 
-                       type="date" 
+                 <div className="md:pt-1">
+                    <CustomDatePicker 
+                       label="End Date" 
                        value={flowFilters.endDate}
-                       onChange={(e) => setFlowFilters({...flowFilters, endDate: e.target.value})}
-                       className="w-full px-4 py-2.5 bg-zinc-50 dark:bg-zinc-800 border border-transparent rounded-xl text-xs font-bold outline-none focus:ring-2 focus:ring-indigo-500/20 dark:text-white"
+                       onChange={(val) => setFlowFilters({...flowFilters, endDate: val})}
                     />
                  </div>
               </div>
@@ -1371,7 +1359,7 @@ const InventoryPage: React.FC<InventoryPageProps> = ({ isDarkMode, db, user }) =
                     </td>
                   </tr>
                 ) : (
-                  paginatedStockItems.map(item => (
+                  displayItems.map(item => (
                     <tr key={item.id} className="group hover:bg-zinc-50 dark:hover:bg-zinc-800/50 transition-colors">
                       {activeSchema?.columns.map(col => (
                         <td key={col.key} className="px-6 py-4 text-xs font-bold text-zinc-700 dark:text-zinc-300">
@@ -1393,7 +1381,14 @@ const InventoryPage: React.FC<InventoryPageProps> = ({ isDarkMode, db, user }) =
               </tbody>
             </table>
           </div>
-          <PaginationFooter />
+          <PaginationFooter 
+            currentPage={currentPage}
+            totalPages={Math.ceil(totalDatabaseCount / itemsPerPage)}
+            itemsPerPage={itemsPerPage}
+            onPageChange={setCurrentPage}
+            onItemsPerPageChange={(val) => { setItemsPerPage(val); setCurrentPage(1); }}
+            dataLength={totalDatabaseCount}
+          />
         </div>
       )}
 
@@ -1485,7 +1480,14 @@ const InventoryPage: React.FC<InventoryPageProps> = ({ isDarkMode, db, user }) =
                        </tbody>
                     </table>
                  </div>
-                 <PaginationFooter />
+                 <PaginationFooter 
+                    currentPage={currentPage}
+                    totalPages={Math.ceil(totalDatabaseCount / itemsPerPage)}
+                    itemsPerPage={itemsPerPage}
+                    onPageChange={setCurrentPage}
+                    onItemsPerPageChange={(val) => { setItemsPerPage(val); setCurrentPage(1); }}
+                    dataLength={totalDatabaseCount}
+                  />
               </div>
            )}
         </div>
@@ -1514,7 +1516,7 @@ const InventoryPage: React.FC<InventoryPageProps> = ({ isDarkMode, db, user }) =
 
       {/* --- ASSET FLOW MODAL --- */}
       {showTransactionModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+        <div className="fixed -top-10 left-0 w-full h-[calc(100vh+40px)] z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
           <div className="bg-white dark:bg-zinc-900 rounded-[2rem] w-full max-w-2xl p-8 shadow-2xl animate-in fade-in zoom-in-95 border border-zinc-200 dark:border-zinc-800">
             <div className="flex justify-between items-start mb-6">
               <div>
@@ -1790,7 +1792,7 @@ const InventoryPage: React.FC<InventoryPageProps> = ({ isDarkMode, db, user }) =
 
       {/* --- SCHEMA EDITOR MODAL --- */}
       {showSchemaModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+        <div className="fixed -top-10 left-0 w-full h-[calc(100vh+40px)] z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
           <div className="bg-white dark:bg-zinc-900 rounded-[2.5rem] w-full max-w-2xl p-8 shadow-2xl animate-in fade-in zoom-in-95 h-[80vh] flex flex-col">
             <div className="flex justify-between items-start mb-6">
               <div>

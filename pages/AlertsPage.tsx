@@ -1,5 +1,6 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
+import PaginationFooter from '../components/PaginationFooter';
 import { 
   AlertCircle, 
   Phone, 
@@ -49,6 +50,10 @@ const AlertsPage: React.FC<AlertsPageProps> = ({ isDarkMode, db, user, role }) =
   const [isRefetching, setIsRefetching] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [activeTab, setActiveTab] = useState<'tickets' | 'swaps'>('tickets');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage] = useState(10);
+  const [totalDatabaseCount, setTotalDatabaseCount] = useState(0);
+  const [hasMore, setHasMore] = useState(false);
   const [selectedAlert, setSelectedAlert] = useState<{
     driverId: string;
     driverName: string;
@@ -60,24 +65,29 @@ const AlertsPage: React.FC<AlertsPageProps> = ({ isDarkMode, db, user, role }) =
   const [reason, setReason] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [logs, setLogs] = useState<AlertLog[]>([]);
+  const [alerts, setAlerts] = useState<any[]>([]);
 
-  const fetchData = async () => {
+  const fetchAlerts = async () => {
     setIsRefetching(true);
+    setLoading(true);
     try {
-      const ticketsSnap = await getDocs(collection(db, 'tickets'));
-      const ticketsData = ticketsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Ticket[];
-      setTickets(ticketsData);
+      const endpoint = activeTab === 'tickets' ? '/api/getTicketAlerts' : '/api/getSwapAlerts';
+      const response = await fetch(`${endpoint}?page=${currentPage}&count=${itemsPerPage}&search=${searchQuery}`);
+      const data = await response.json();
+      
+      if (!response.ok) throw new Error(data.error);
 
-      const driversSnap = await getDocs(collection(db, 'drivers'));
-      const driversData = driversSnap.docs.map(doc => doc.data() as Driver);
-      setDrivers(driversData);
+      setAlerts(activeTab === 'tickets' ? data.alerts : data.alerts);
+      setTotalDatabaseCount(data.total);
+      setHasMore(currentPage < data.totalPages);
 
+      // Still need logs for the sidebar
       const logsSnap = await getDocs(collection(db, 'alert_logs'));
       const logsData = logsSnap.docs.map(doc => doc.data() as AlertLog);
       setLogs(logsData.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()));
 
     } catch (err) {
-      console.error("Error fetching data:", err);
+      console.error("Error fetching alerts:", err);
     } finally {
       setLoading(false);
       setIsRefetching(false);
@@ -85,85 +95,18 @@ const AlertsPage: React.FC<AlertsPageProps> = ({ isDarkMode, db, user, role }) =
   };
 
   useEffect(() => {
-    fetchData();
-  }, []);
+    fetchAlerts();
+  }, [activeTab, currentPage, searchQuery]);
 
-  const ticketAlerts = useMemo(() => {
-    const twoDaysAgo = new Date();
-    twoDaysAgo.setDate(twoDaysAgo.getDate() - 2);
-    
-    return tickets.filter(t => {
-      if (t.status === 'Closed') return false;
-      
-      // Role-based filtering for technicians
-      if (role === UserRole.TECHNICIAN && t.technicianId !== user.email?.toLowerCase()) {
-        return false;
-      }
+  const handleNextPage = () => {
+    if (hasMore) setCurrentPage(prev => prev + 1);
+  };
 
-      const createdAt = new Date(t.createdAt);
-      return createdAt < twoDaysAgo;
-    }).map(t => ({
-      id: t.id,
-      driverId: t.driverId,
-      driverName: t.driverName,
-      phone: t.driverPhone,
-      createdAt: t.createdAt,
-      category: t.category,
-      status: t.status
-    }));
-  }, [tickets]);
+  const handlePrevPage = () => {
+    if (currentPage > 1) setCurrentPage(prev => prev - 1);
+  };
 
-  const swapAlerts = useMemo(() => {
-    // Technicians don't see swap alerts as they are for support team
-    if (role === UserRole.TECHNICIAN) return [];
-
-    const now = new Date();
-    now.setHours(0, 0, 0, 0);
-    
-    const fourDaysAgo = new Date(now);
-    fourDaysAgo.setDate(fourDaysAgo.getDate() - 4);
-    const fourDaysAgoTime = fourDaysAgo.getTime();
-
-    return drivers.filter(d => {
-      // Strictly follow user request: assigned: true
-      if (!d.assigned) return false;
-      
-      // If last_swap_date is missing or 0, they haven't swapped, so they should be alerted if assigned
-      if (!d.last_swap_date || d.last_swap_date === 0) return true;
-      
-      // Handle both seconds and milliseconds (e.g. 1775319741597 is ms)
-      const swapRaw = d.last_swap_date;
-      const swapMs = swapRaw > 100000000000 ? swapRaw : swapRaw * 1000;
-      
-      const swapDate = new Date(swapMs);
-      swapDate.setHours(0, 0, 0, 0);
-      
-      // Compare date only: if swapDate is 4 days ago or older (e.g. if today is 7th, 4 days ago is 3rd. Alert if swap was on 3rd, 2nd, 1st...)
-      return swapDate.getTime() <= fourDaysAgoTime;
-    }).map(d => ({
-      driverId: d.driver_id,
-      driverName: d.name,
-      phone: d.phone,
-      lastSwapDate: d.last_swap_date
-    }));
-  }, [drivers, role]);
-
-  const filteredAlerts = useMemo(() => {
-    const q = searchQuery.toLowerCase();
-    if (activeTab === 'tickets') {
-      return ticketAlerts.filter(a => 
-        a.driverName.toLowerCase().includes(q) || 
-        a.driverId.toLowerCase().includes(q) || 
-        a.phone.includes(q)
-      );
-    } else {
-      return swapAlerts.filter(a => 
-        a.driverName.toLowerCase().includes(q) || 
-        a.driverId.toLowerCase().includes(q) || 
-        a.phone.includes(q)
-      );
-    }
-  }, [activeTab, ticketAlerts, swapAlerts, searchQuery]);
+  const alertsToDisplay = alerts;
 
   const handleCallLog = async () => {
     if (!selectedAlert || !callStatus || isSubmitting) return;
@@ -209,28 +152,31 @@ const AlertsPage: React.FC<AlertsPageProps> = ({ isDarkMode, db, user, role }) =
           <h2 className="text-3xl font-black text-zinc-900 dark:text-white tracking-tight">Alert Center</h2>
           <p className="text-zinc-500 dark:text-zinc-400 font-medium">Critical issues requiring immediate attention</p>
         </div>
-        <button 
-          onClick={fetchData}
-          disabled={isRefetching}
-          className="flex items-center gap-2 px-6 py-3 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl font-bold text-sm shadow-sm hover:bg-zinc-50 transition-all"
-        >
-          <RefreshCw className={`w-4 h-4 ${isRefetching ? 'animate-spin' : ''}`} />
-          Refresh
-        </button>
       </div>
 
-      <div className="flex gap-2 p-1 bg-zinc-100 dark:bg-zinc-800/50 rounded-2xl w-fit">
+      <div className="flex items-center justify-between gap-4">
+        <div className="flex gap-1 p-1 bg-zinc-100 dark:bg-zinc-800/50 rounded-2xl w-fit">
+          <button 
+            onClick={() => { setActiveTab('tickets'); setCurrentPage(1); }}
+            className={`px-4 sm:px-6 py-2.5 rounded-xl text-sm font-bold transition-all ${activeTab === 'tickets' ? 'bg-white dark:bg-zinc-800 text-indigo-600 dark:text-indigo-400 shadow-sm' : 'text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300'}`}
+          >
+            Ticket Alerts
+          </button>
+          <button 
+            onClick={() => { setActiveTab('swaps'); setCurrentPage(1); }}
+            className={`px-4 sm:px-6 py-2.5 rounded-xl text-sm font-bold transition-all ${activeTab === 'swaps' ? 'bg-white dark:bg-zinc-800 text-indigo-600 dark:text-indigo-400 shadow-sm' : 'text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300'}`}
+          >
+            Swap Alerts
+          </button>
+        </div>
+
         <button 
-          onClick={() => setActiveTab('tickets')}
-          className={`px-6 py-2.5 rounded-xl text-sm font-bold transition-all ${activeTab === 'tickets' ? 'bg-white dark:bg-zinc-800 text-indigo-600 dark:text-indigo-400 shadow-sm' : 'text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300'}`}
+          onClick={fetchAlerts}
+          disabled={isRefetching}
+          className="flex items-center gap-2 px-4 sm:px-6 py-2.5 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl font-bold text-sm shadow-sm hover:bg-zinc-50 transition-all shrink-0"
         >
-          Ticket Alerts ({ticketAlerts.length})
-        </button>
-        <button 
-          onClick={() => setActiveTab('swaps')}
-          className={`px-6 py-2.5 rounded-xl text-sm font-bold transition-all ${activeTab === 'swaps' ? 'bg-white dark:bg-zinc-800 text-indigo-600 dark:text-indigo-400 shadow-sm' : 'text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300'}`}
-        >
-          Swap Alerts ({swapAlerts.length})
+          <RefreshCw className={`w-4 h-4 ${isRefetching ? 'animate-spin' : ''}`} />
+          <span className="hidden sm:inline">Refresh</span>
         </button>
       </div>
 
@@ -247,15 +193,15 @@ const AlertsPage: React.FC<AlertsPageProps> = ({ isDarkMode, db, user, role }) =
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         <div className="lg:col-span-2 space-y-4">
-          {filteredAlerts.length === 0 ? (
+          {alerts.length === 0 ? (
             <div className="py-20 text-center bg-white dark:bg-zinc-900 rounded-[2.5rem] border border-zinc-200 dark:border-zinc-800 opacity-40">
               <CheckCircle2 className="w-16 h-16 mx-auto mb-4 text-zinc-300 dark:text-zinc-600" />
               <p className="text-lg font-bold text-zinc-900 dark:text-white">No active alerts</p>
             </div>
           ) : (
-            filteredAlerts.map((alert, idx) => (
+            alerts.map((alert) => (
               <div 
-                key={idx}
+                key={alert.id || alert.driverId || alert.driver_id}
                 className="bg-white dark:bg-zinc-900 rounded-[2rem] p-6 border border-zinc-200 dark:border-zinc-800 shadow-sm hover:shadow-xl transition-all group"
               >
                 <div className="flex justify-between items-start mb-6">
@@ -264,8 +210,8 @@ const AlertsPage: React.FC<AlertsPageProps> = ({ isDarkMode, db, user, role }) =
                       {activeTab === 'tickets' ? <AlertCircle className="w-7 h-7" /> : <RefreshCw className="w-7 h-7" />}
                     </div>
                     <div>
-                      <h3 className="text-xl font-black text-zinc-900 dark:text-white tracking-tight">{alert.driverName}</h3>
-                      <p className="text-xs font-bold text-zinc-400">ID: {alert.driverId}</p>
+                      <h3 className="text-xl font-black text-zinc-900 dark:text-white tracking-tight">{alert.driverName || alert.name}</h3>
+                      <p className="text-xs font-bold text-zinc-400">ID: {alert.driverId || alert.driver_id}</p>
                     </div>
                   </div>
                   <div className="text-right">
@@ -273,7 +219,9 @@ const AlertsPage: React.FC<AlertsPageProps> = ({ isDarkMode, db, user, role }) =
                       {activeTab === 'tickets' ? 'Raised On' : 'Last Swap'}
                     </p>
                     <p className="text-xs font-bold text-zinc-700 dark:text-zinc-300">
-                      {activeTab === 'tickets' ? formatDate((alert as any).createdAt) : formatDate((alert as any).lastSwapDate)}
+                      {activeTab === 'tickets' 
+                        ? new Date(alert.createdAt).toLocaleDateString()
+                        : (alert.last_swap_date ? new Date(alert.last_swap_date > 100000000000 ? alert.last_swap_date : alert.last_swap_date * 1000).toLocaleDateString() : 'Never')}
                     </p>
                   </div>
                 </div>
@@ -281,22 +229,34 @@ const AlertsPage: React.FC<AlertsPageProps> = ({ isDarkMode, db, user, role }) =
                 <div className="flex flex-col sm:flex-row gap-4 items-center justify-between pt-6 border-t border-zinc-50 dark:border-zinc-800/50">
                   <div className="flex items-center gap-6">
                     <a 
-                      href={`tel:${alert.phone}`}
-                      onClick={() => setSelectedAlert({ ...alert, type: activeTab === 'tickets' ? 'Ticket' : 'Swap' })}
+                      href={`tel:${alert.driverPhone || alert.phone}`}
+                      onClick={() => setSelectedAlert({ 
+                        driverId: alert.driverId || alert.driver_id,
+                        driverName: alert.driverName || alert.name,
+                        phone: alert.driverPhone || alert.phone,
+                        type: activeTab === 'tickets' ? 'Ticket' : 'Swap',
+                        id: alert.id
+                      })}
                       className="flex items-center gap-2 px-4 py-2 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-600 dark:text-indigo-400 rounded-xl font-bold text-sm hover:bg-indigo-100 transition-all"
                     >
                       <Phone className="w-4 h-4" />
-                      {alert.phone}
+                      {alert.driverPhone || alert.phone}
                     </a>
                     {activeTab === 'tickets' && (
                       <div className="flex flex-col">
                         <span className="text-[10px] font-black text-zinc-400 uppercase tracking-widest">Category</span>
-                        <span className="text-xs font-bold text-zinc-600 dark:text-zinc-400">{(alert as any).category}</span>
+                        <span className="text-xs font-bold text-zinc-600 dark:text-zinc-400">{alert.category}</span>
                       </div>
                     )}
                   </div>
                   <button 
-                    onClick={() => setSelectedAlert({ ...alert, type: activeTab === 'tickets' ? 'Ticket' : 'Swap' })}
+                    onClick={() => setSelectedAlert({ 
+                      driverId: alert.driverId || alert.driver_id,
+                      driverName: alert.driverName || alert.name,
+                      phone: alert.driverPhone || alert.phone,
+                      type: activeTab === 'tickets' ? 'Ticket' : 'Swap',
+                      id: alert.id
+                    })}
                     className="w-full sm:w-auto px-6 py-2.5 bg-zinc-900 dark:bg-zinc-800 text-white rounded-xl font-bold text-sm hover:bg-zinc-800 dark:hover:bg-zinc-700 transition-all flex items-center justify-center gap-2"
                   >
                     Log Call
@@ -306,6 +266,15 @@ const AlertsPage: React.FC<AlertsPageProps> = ({ isDarkMode, db, user, role }) =
               </div>
             ))
           )}
+
+          <PaginationFooter 
+            currentPage={currentPage}
+            totalPages={Math.ceil(totalDatabaseCount / itemsPerPage)}
+            itemsPerPage={itemsPerPage}
+            onPageChange={setCurrentPage}
+            onItemsPerPageChange={() => {}} // fixed 10 for alerts
+            dataLength={totalDatabaseCount}
+          />
         </div>
 
         <div className="space-y-6">
