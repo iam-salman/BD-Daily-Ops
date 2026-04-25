@@ -26,7 +26,7 @@ const db = getFirestore(app);
 
 async function startServer() {
   const server = express();
-  const PORT = 3000;
+  const PORT = 5173;
 
   server.use(express.json());
 
