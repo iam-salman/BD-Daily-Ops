@@ -112,6 +112,7 @@ export interface DriverMasterRecord {
     mcb: DriverOnboardingItem;
     extension_cable: DriverOnboardingItem;
   };
+  onboarded_city?: string;
   id_card: {
     generated: boolean;
     delivered: boolean;
@@ -120,6 +121,7 @@ export interface DriverMasterRecord {
     current_holder_name?: string;
     status: 'Not Generated' | 'Generated' | 'In Transit' | 'Delivered';
     last_updated_at?: string;
+    station_id?: string;
   };
   gift_kit: {
     eligible: boolean;
@@ -168,6 +170,11 @@ export interface DriverMasterRecord {
   agreement_handed_over?: boolean;
 }
 
+export interface OnboardedCity {
+  id: string;
+  name: string;
+}
+
 export interface IDCardHandoverRequest {
   id: string;
   cardIds: string[]; // Changed from cardId to cardIds for bulk support
@@ -175,10 +182,38 @@ export interface IDCardHandoverRequest {
   fromName: string;
   toId: string; // email
   toName: string;
+  executiveType?: 'Marketing' | 'Technician' | 'Operator' | 'Other';
+  stationId?: string; // Station ID where the card is located (for Operators)
   pin: string;
   status: 'Pending' | 'Completed' | 'Cancelled' | 'Expired';
   timestamp: string;
   expiresAt?: string; // ISO string for 1-minute expiry
+}
+
+export interface UserRecord {
+  id: string; // email
+  email: string;
+  name?: string;
+  role: UserRole; // primary role
+  roles: UserRole[]; // all roles
+  status: 'Active' | 'Pending';
+  invitedAt: string;
+}
+
+export interface UserMessage {
+  id: string;
+  toId: string; // recipient email
+  fromId: string; // sender email
+  fromName: string;
+  title: string;
+  body: string;
+  type: 'HandoverCode' | 'Alert' | 'System';
+  relatedId?: string; // e.g., handover ID
+  code?: string;
+  stationId?: string;
+  stationName?: string;
+  read: boolean;
+  timestamp: string;
 }
 
 export interface DriverComment {

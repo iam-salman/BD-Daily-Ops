@@ -71,7 +71,7 @@ const App: React.FC = () => {
               <Routes>
                 <Route path="/dashboard" element={<Dashboard isDarkMode={isDarkMode} />} />
                 <Route path="/alerts" element={(role === UserRole.ADMIN || role === UserRole.SUPPORT_EXECUTIVE || role === UserRole.TECHNICIAN) ? <AlertsPage isDarkMode={isDarkMode} db={db} user={user} role={role} /> : <div className="p-20 text-center font-bold text-gray-400">Access Denied</div>} />
-                <Route path="/id-cards" element={role === UserRole.ADMIN ? <IDCardsPage isDarkMode={isDarkMode} db={db} user={user} role={role} userName={userName} /> : <Navigate to="/dashboard" replace />} />
+                <Route path="/id-cards" element={role ? <IDCardsPage isDarkMode={isDarkMode} db={db} user={user} role={role} userName={userName} /> : <Navigate to="/dashboard" replace />} />
                 <Route path="/drivers" element={role === UserRole.ADMIN ? <DriversPage onDriverSelect={handleDriverSelect} isDarkMode={isDarkMode} role={role} /> : <Navigate to="/dashboard" replace />} />
                 <Route path="/stations" element={role === UserRole.ADMIN ? <StationsPage isDarkMode={isDarkMode} /> : <Navigate to="/dashboard" replace />} />
                 <Route path="/tickets" element={(role === UserRole.ADMIN || role === UserRole.SUPPORT_EXECUTIVE || role === UserRole.TECHNICIAN) ? <TicketsPage isDarkMode={isDarkMode} user={user} role={role} db={db} userName={userName} /> : <Navigate to="/dashboard" replace />} />

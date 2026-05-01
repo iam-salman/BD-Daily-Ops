@@ -1,5 +1,5 @@
 
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   MagnifyingGlassIcon, 
   BellIcon, 
@@ -11,6 +11,9 @@ import {
 } from '@heroicons/react/24/outline';
 import { UserRole } from '../types';
 import { User } from "firebase/auth";
+import { collection, query, where, onSnapshot } from 'firebase/firestore';
+import { db } from '../lib/firebase';
+import GlobalInbox from './GlobalInbox';
 
 interface HeaderProps {
   role: UserRole;
@@ -22,6 +25,25 @@ interface HeaderProps {
 }
 
 const Header: React.FC<HeaderProps> = ({ role, onMenuClick, isDarkMode, onThemeToggle, user, userName }) => {
+  const [isInboxOpen, setIsInboxOpen] = useState(false);
+  const [unreadCount, setUnreadCount] = useState(0);
+
+  useEffect(() => {
+    if (!user?.email) return;
+
+    const q = query(
+      collection(db, "user_messages"),
+      where("toId", "==", user.email),
+      where("read", "==", false)
+    );
+
+    const unsubscribe = onSnapshot(q, (snap) => {
+      setUnreadCount(snap.size);
+    });
+
+    return () => unsubscribe();
+  }, [user?.email]);
+
   return (
     <header className="h-20 border-b px-4 lg:px-8 flex items-center justify-between sticky top-0 z-30 transition-all bg-white dark:bg-dark-surface border-gray-50 dark:border-dark-border">
       <div className="flex items-center gap-4 flex-1">
@@ -53,9 +75,17 @@ const Header: React.FC<HeaderProps> = ({ role, onMenuClick, isDarkMode, onThemeT
             {isDarkMode ? <SunIcon className="w-5 h-5" /> : <MoonIcon className="w-5 h-5" />}
           </button>
           
-          <button className="p-2.5 rounded-xl transition-all relative text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-dark-bg dark:hover:text-indigo-400">
+          <button 
+            onClick={() => setIsInboxOpen(true)}
+            className="p-2.5 rounded-xl transition-all relative text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-dark-bg dark:hover:text-indigo-400"
+          >
             <EnvelopeIcon className="w-5 h-5" />
-            <span className="absolute top-2 right-2 w-2 h-2 bg-indigo-500 rounded-full border-2 border-white dark:border-dark-surface"></span>
+            {unreadCount > 0 && (
+              <span className="absolute top-2 right-2 flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-indigo-500 border border-white dark:border-dark-surface"></span>
+              </span>
+            )}
           </button>
           <button className="hidden sm:flex p-2.5 rounded-xl transition-all text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-dark-bg dark:hover:text-indigo-400">
             <BellIcon className="w-5 h-5" />
@@ -83,6 +113,14 @@ const Header: React.FC<HeaderProps> = ({ role, onMenuClick, isDarkMode, onThemeT
           <ChevronDownIcon className="w-4 h-4 text-gray-400" />
         </button>
       </div>
+
+      <GlobalInbox 
+        isOpen={isInboxOpen} 
+        onClose={() => setIsInboxOpen(false)} 
+        userEmail={user.email || ''} 
+        db={db}
+        userName={userName || user.displayName || user.email?.split('@')[0] || 'User'}
+      />
     </header>
   );
 };

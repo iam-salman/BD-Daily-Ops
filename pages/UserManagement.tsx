@@ -35,7 +35,8 @@ interface ManagedUser {
   id: string;
   email: string;
   name?: string;
-  role: UserRole;
+  role: UserRole; // primary/display role
+  roles: UserRole[]; // all assigned roles
   status: 'Active' | 'Pending';
   invitedAt: string;
 }
@@ -80,7 +81,7 @@ const UserManagement: React.FC<UserManagementProps> = ({ isDarkMode, db }) => {
   const [users, setUsers] = useState<ManagedUser[]>([]);
   const [loading, setLoading] = useState(true);
   const [inviteEmail, setInviteEmail] = useState('');
-  const [inviteRole, setInviteRole] = useState<UserRole>(UserRole.SUPPORT_EXECUTIVE);
+  const [inviteRoles, setInviteRoles] = useState<UserRole[]>([UserRole.SUPPORT_EXECUTIVE]);
   const [showInviteForm, setShowInviteForm] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [successMsg, setSuccessMsg] = useState('');
@@ -117,13 +118,20 @@ const UserManagement: React.FC<UserManagementProps> = ({ isDarkMode, db }) => {
         const q = query(usersRef, orderBy("invitedAt", "desc"));
         const snapshot = await getDocs(q);
         
-        let allUsers = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as ManagedUser));
+        let allUsers = snapshot.docs.map(doc => {
+          const data = doc.data();
+          return { 
+            id: doc.id, 
+            ...data,
+            roles: data.roles || [data.role] || []
+          } as ManagedUser;
+        });
 
         if (searchQuery) {
           const qStr = searchQuery.toLowerCase();
           allUsers = allUsers.filter(u => 
             u.email.toLowerCase().includes(qStr) ||
-            u.role.toLowerCase().includes(qStr) ||
+            u.roles.some(r => r.toLowerCase().includes(qStr)) ||
             (u.name || '').toLowerCase().includes(qStr)
           );
         }
@@ -158,7 +166,8 @@ const UserManagement: React.FC<UserManagementProps> = ({ isDarkMode, db }) => {
     try {
       const newUserData = {
         email: emailKey,
-        role: inviteRole,
+        role: inviteRoles[0] || UserRole.SUPPORT_EXECUTIVE,
+        roles: inviteRoles,
         status: 'Pending',
         invitedAt: new Date().toISOString()
       };
@@ -191,9 +200,10 @@ const UserManagement: React.FC<UserManagementProps> = ({ isDarkMode, db }) => {
 
   const sendInviteEmail = (email: string) => {
     const link = getInviteLink();
+    const primaryRole = inviteRoles[0] || 'Member';
     const subject = encodeURIComponent("Setup Your BD Ops Account");
     const body = encodeURIComponent(
-      `Hello,\n\nYou have been authorized as a ${inviteRole} on the BD Ops Dashboard.\n\nPlease complete your account setup and set your password at the link below:\n\n${link}\n\nSteps to setup:\n1. Click "Invited by admin? Setup Account" at the bottom of the login screen.\n2. Enter your email: ${email}\n3. Choose a secure password.\n4. Click "Setup My Account".\n\nBest regards,\nOperations Team`
+      `Hello,\n\nYou have been authorized with roles: ${inviteRoles.join(', ')} on the BD Ops Dashboard.\n\nPlease complete your account setup and set your password at the link below:\n\n${link}\n\nSteps to setup:\n1. Click "Invited by admin? Setup Account" at the bottom of the login screen.\n2. Enter your email: ${email}\n3. Choose a secure password.\n4. Click "Setup My Account".\n\nBest regards,\nOperations Team`
     );
     window.location.href = `mailto:${email}?subject=${subject}&body=${body}`;
   };
@@ -225,8 +235,11 @@ const UserManagement: React.FC<UserManagementProps> = ({ isDarkMode, db }) => {
     if (!editingUser) return;
     try {
       const userRef = doc(db, "users", editingUser.id);
-      await setDoc(userRef, { role: editingUser.role }, { merge: true });
-      setSuccessMsg(`Role updated for ${editingUser.email}`);
+      await setDoc(userRef, { 
+        role: editingUser.roles[0] || UserRole.SUPPORT_EXECUTIVE,
+        roles: editingUser.roles 
+      }, { merge: true });
+      setSuccessMsg(`Roles updated for ${editingUser.email}`);
       setIsEditModalOpen(false);
       setEditingUser(null);
       // Data will refresh via useEffect
@@ -250,7 +263,7 @@ const UserManagement: React.FC<UserManagementProps> = ({ isDarkMode, db }) => {
   const filteredUsers = useMemo(() => {
     let base = users.filter(user => 
       user.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      user.role.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      user.roles.some(r => r.toLowerCase().includes(searchQuery.toLowerCase())) ||
       (user.name || '').toLowerCase().includes(searchQuery.toLowerCase())
     );
 
@@ -355,13 +368,14 @@ const UserManagement: React.FC<UserManagementProps> = ({ isDarkMode, db }) => {
                 </div>
               </div>
               <div className="space-y-2">
-                <label className="text-xs font-bold text-gray-400 dark:text-slate-500 uppercase tracking-wider ml-1">Access Tier</label>
+                <label className="text-xs font-bold text-gray-400 dark:text-slate-500 uppercase tracking-wider ml-1">Access Tiers</label>
                 <div className="relative">
                   <CustomSelect
                     options={roleOptions}
-                    value={inviteRole}
-                    onChange={(val) => setInviteRole(val as UserRole)}
-                    className="!bg-gray-50 dark:!bg-dark-bg !border-transparent dark:!border-dark-border !py-4 !rounded-2xl shadow-none"
+                    value={inviteRoles}
+                    onChange={(val) => setInviteRoles(val as UserRole[])}
+                    multiple
+                    className="!bg-gray-50 dark:!bg-dark-bg !py-4 !rounded-2xl shadow-none"
                   />
                 </div>
               </div>
@@ -437,13 +451,17 @@ const UserManagement: React.FC<UserManagementProps> = ({ isDarkMode, db }) => {
                     </div>
                   </td>
                   <td className="px-6 py-4">
-                    <span className={`px-2 py-0.5 rounded-lg text-[10px] font-bold uppercase ${
-                      member.role === UserRole.ADMIN 
-                        ? 'bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300' 
-                        : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400'
-                    }`}>
-                      {member.role}
-                    </span>
+                    <div className="flex flex-wrap gap-1 max-w-[200px]">
+                      {member.roles.map(r => (
+                        <span key={r} className={`px-2 py-0.5 rounded-lg text-[10px] font-bold uppercase ${
+                          r === UserRole.ADMIN 
+                            ? 'bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300' 
+                            : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400'
+                        }`}>
+                          {r}
+                        </span>
+                      ))}
+                    </div>
                   </td>
                   <td className="px-6 py-4">
                     <div className="flex items-center gap-2">
@@ -525,11 +543,12 @@ const UserManagement: React.FC<UserManagementProps> = ({ isDarkMode, db }) => {
                 </div>
               </div>
               <div className="space-y-1">
-                <label className="text-[10px] font-black text-zinc-400 uppercase tracking-widest ml-1">Access Tier</label>
+                <label className="text-[10px] font-black text-zinc-400 uppercase tracking-widest ml-1">Access Tiers</label>
                 <CustomSelect
                   options={roleOptions}
-                  value={editingUser.role}
-                  onChange={(val) => setEditingUser({...editingUser, role: val as UserRole})}
+                  value={editingUser.roles}
+                  multiple
+                  onChange={(val) => setEditingUser({...editingUser, roles: val as UserRole[]})}
                 />
               </div>
               <div className="flex gap-4 pt-4">

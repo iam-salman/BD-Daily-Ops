@@ -172,7 +172,7 @@ const CustomSelect: React.FC<CustomSelectProps> = ({
         type="button"
         onClick={() => !disabled && setIsOpen(!isOpen)}
         disabled={disabled}
-        className={`w-full flex items-center justify-between px-4 h-11 bg-zinc-50 dark:bg-zinc-900 border border-transparent dark:border-zinc-800 rounded-xl text-xs font-bold outline-none focus:ring-2 focus:ring-indigo-500/20 text-zinc-900 dark:text-zinc-300 transition-all hover:dark:border-zinc-700 ${disabled ? 'opacity-50 cursor-not-allowed' : ''} ${className || ''}`}
+        className={`w-full flex items-center justify-between px-4 h-11 bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl text-xs font-bold outline-none focus:ring-2 focus:ring-indigo-500/20 text-zinc-900 dark:text-zinc-300 transition-all hover:dark:border-zinc-700 ${disabled ? 'opacity-50 cursor-not-allowed' : ''} ${className || ''}`}
       >
         <span className="truncate pr-2">{getDisplayLabel()}</span>
         <ChevronDownIcon className={`w-4 h-4 text-zinc-500 flex-shrink-0 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`} />

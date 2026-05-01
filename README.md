@@ -1,49 +1,20 @@
-# Battery Dost Daily Ops
+<div align="center">
+<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
+</div>
 
-A web application for managing Battery Dost's battery swapping operations.
+# Run and deploy your AI Studio app
 
-## Features
+This contains everything you need to run your app locally.
 
-- **Dashboard**: Key metrics and battery swap analytics
-- **Drivers**: Manage driver profiles and onboarding
-- **Stations**: Monitor swapping stations
-- **Inventory**: Track battery status and health
-- **Tickets**: Support ticket management
-- **Alerts**: Real-time system notifications
-- **ID Cards**: Driver ID card generation
-- **User Management**: Role-based access control
-- **Settings**: System configuration
+View your app in AI Studio: https://ai.studio/apps/1d9883fe-39c9-4aac-8c21-ff0b6cf34e47
 
-## Tech Stack
+## Run Locally
 
-- React 19, TypeScript, Vite
-- Firebase (Auth, Firestore, Storage)
-- Tailwind CSS, Recharts
-- ExcelJS, HTML-to-Image
+**Prerequisites:**  Node.js
 
-## Installation
 
-1. Clone the repo and install dependencies:
-   ```bash
-   npm install
-   ```
-
-2. Configure Firebase environment variables in `.env.local`
-
-3. Start development server:
-   ```bash
-   npm run dev
-   ```
-
-## Usage
-
-- Login with credentials
-- Navigate via sidebar
-- Manage operations across different modules
-
-## Scripts
-
-- `npm run dev`: Development server
-- `npm run build`: Production build
-- `npm run preview`: Preview build
-- `npm run lint`: TypeScript check
+1. Install dependencies:
+   `npm install`
+2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
+3. Run the app:
+   `npm run dev`

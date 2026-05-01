@@ -32,7 +32,7 @@ export const NAVIGATION: NavItem[] = [
   { id: 'dashboard', label: 'Dashboard', icon: <Squares2X2Icon className="w-5 h-5" />, category: 'Core Operations', roles: [UserRole.ADMIN, UserRole.SUPERVISOR, UserRole.SUPPORT_EXECUTIVE, UserRole.TECHNICIAN, UserRole.OPERATOR, UserRole.MARKETING_EXECUTIVE] },
   { id: 'alerts', label: 'Alerts', icon: <MegaphoneIcon className="w-5 h-5" />, category: 'Core Operations', roles: [UserRole.ADMIN, UserRole.SUPPORT_EXECUTIVE, UserRole.TECHNICIAN] },
   { id: 'drivers', label: 'Drivers', icon: <UsersIcon className="w-5 h-5" />, category: 'Core Operations', roles: [UserRole.ADMIN] },
-  { id: 'id-cards', label: 'ID Cards', icon: <IdentificationIcon className="w-5 h-5" />, category: 'Core Operations', roles: [UserRole.ADMIN] },
+  { id: 'id-cards', label: 'ID Cards', icon: <IdentificationIcon className="w-5 h-5" />, category: 'Core Operations', roles: [UserRole.ADMIN, UserRole.SUPERVISOR, UserRole.SUPPORT_EXECUTIVE, UserRole.TECHNICIAN, UserRole.OPERATOR, UserRole.MARKETING_EXECUTIVE] },
   { id: 'stations', label: 'Stations', icon: <BuildingStorefrontIcon className="w-5 h-5" />, category: 'Core Operations', roles: [UserRole.ADMIN] },
   { id: 'tickets', label: 'Tickets', icon: <TicketIcon className="w-5 h-5" />, category: 'Core Operations', roles: [UserRole.ADMIN, UserRole.SUPPORT_EXECUTIVE, UserRole.TECHNICIAN] },
   

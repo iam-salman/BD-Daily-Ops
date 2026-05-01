@@ -18,6 +18,7 @@ import {
   ArrowPathIcon,
   BoltIcon,
   RssIcon,
+  MapPinIcon,
 } from "@heroicons/react/24/outline";
 import {
   doc,
@@ -86,6 +87,7 @@ const DriverDetailPage: React.FC<DriverDetailPageProps> = ({
   const [comments, setComments] = useState<DriverComment[]>([]);
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [allUsers, setAllUsers] = useState<{ email: string; role: string }[]>([]);
+  const [cities, setCities] = useState<{ id: string; name: string }[]>([]);
   const [loading, setLoading] = useState(true);
 
   // Form States
@@ -93,6 +95,8 @@ const DriverDetailPage: React.FC<DriverDetailPageProps> = ({
   const [newComment, setNewComment] = useState("");
   const [idCardLink, setIdCardLink] = useState("");
   const [giftKitLink, setGiftKitLink] = useState("");
+  const [newCityName, setNewCityName] = useState("");
+  const [isAddingCity, setIsAddingCity] = useState(false);
 
   // Visibility States
   const [showInactiveForm, setShowInactiveForm] = useState(false);
@@ -101,6 +105,7 @@ const DriverDetailPage: React.FC<DriverDetailPageProps> = ({
   const [showSpecsForm, setShowSpecsForm] = useState(false);
   const [showReferrerForm, setShowReferrerForm] = useState(false);
   const [showConnectionForm, setShowConnectionForm] = useState(false);
+  const [showCityForm, setShowCityForm] = useState(false);
 
   // Local Sync States
   const [localInactive, setLocalInactive] = useState<
@@ -126,55 +131,69 @@ const DriverDetailPage: React.FC<DriverDetailPageProps> = ({
     const unsubMaster = onSnapshot(
       docRef,
       (snapshot) => {
+        const defaultData: DriverMasterRecord = {
+          additional_phones: [],
+          onboarding: {
+            harness: { installed: false },
+            soc_meter: { installed: false },
+            mcb: { installed: false },
+            extension_cable: { installed: false },
+          },
+          id_card: {
+            generated: false,
+            delivered: false,
+            status: "Not Generated",
+            current_holder_id: "",
+            current_holder_name: "",
+          },
+          gift_kit: { eligible: false, status: "Pending" },
+          status_info: { inactive_secondary_reason: "", inactive_remarks: "" },
+          follow_up: {
+            category: "Pending",
+            timeframe: "",
+            remarks: "",
+            last_called_at: "",
+          },
+          kit_recovery: {
+            harness: false,
+            soc_meter: false,
+            extension_cable: false,
+            mcb: false,
+            condition: "N/A",
+            refund_amount: 0,
+            recovered_date: "",
+          },
+          vehicle_specs: {
+            controller_v: "",
+            controller_wattage: "",
+            motor_v: "",
+            motor_wattage: "",
+          },
+          referrer_info: {
+            is_our_driver: false,
+            referrer_driver_id: "",
+            referrer_name: "",
+            referrer_phone: "",
+          },
+          agreement_handed_over: false,
+        };
+
         if (snapshot.exists()) {
-          setMasterData(snapshot.data() as DriverMasterRecord);
+          const data = snapshot.data();
+          // Deep merge or at least top-level merge with defaults
+          setMasterData({
+            ...defaultData,
+            ...data,
+            onboarding: { ...defaultData.onboarding, ...(data.onboarding || {}) },
+            id_card: { ...defaultData.id_card, ...(data.id_card || {}) },
+            gift_kit: { ...defaultData.gift_kit, ...(data.gift_kit || {}) },
+            status_info: { ...defaultData.status_info, ...(data.status_info || {}) },
+            follow_up: { ...defaultData.follow_up, ...(data.follow_up || {}) },
+            kit_recovery: { ...defaultData.kit_recovery, ...(data.kit_recovery || {}) },
+            vehicle_specs: { ...defaultData.vehicle_specs, ...(data.vehicle_specs || {}) },
+            referrer_info: { ...defaultData.referrer_info, ...(data.referrer_info || {}) },
+          } as DriverMasterRecord);
         } else {
-          const defaultData: DriverMasterRecord = {
-            additional_phones: [],
-            onboarding: {
-              harness: { installed: false },
-              soc_meter: { installed: false },
-              mcb: { installed: false },
-              extension_cable: { installed: false },
-            },
-            id_card: {
-              generated: false,
-              delivered: false,
-              status: "Not Generated",
-              current_holder_id: "",
-              current_holder_name: "",
-            },
-            gift_kit: { eligible: false, status: "Pending" },
-            status_info: { inactive_secondary_reason: "", inactive_remarks: "" },
-            follow_up: {
-              category: "Pending",
-              timeframe: "",
-              remarks: "",
-              last_called_at: "",
-            },
-            kit_recovery: {
-              harness: false,
-              soc_meter: false,
-              extension_cable: false,
-              mcb: false,
-              condition: "N/A",
-              refund_amount: 0,
-              recovered_date: "",
-            },
-            vehicle_specs: {
-              controller_v: "",
-              controller_wattage: "",
-              motor_v: "",
-              motor_wattage: "",
-            },
-            referrer_info: {
-              is_our_driver: false,
-              referrer_driver_id: "",
-              referrer_name: "",
-              referrer_phone: "",
-            },
-            agreement_handed_over: false,
-          };
           setDoc(docRef, cleanObject(defaultData));
           setMasterData(defaultData);
         }
@@ -225,8 +244,38 @@ const DriverDetailPage: React.FC<DriverDetailPageProps> = ({
       }));
       setAllUsers(usersList);
     });
-    return () => unsubUsers();
+
+    const unsubCities = onSnapshot(collection(db, "onboarded_cities"), (snapshot) => {
+      const cityList = snapshot.docs.map(doc => ({
+        id: doc.id,
+        name: doc.data().name
+      }));
+      cityList.sort((a, b) => a.name.localeCompare(b.name));
+      setCities(cityList);
+    });
+
+    return () => {
+      unsubUsers();
+      unsubCities();
+    };
   }, [db]);
+
+  const handleAddCity = async () => {
+    if (!newCityName.trim()) return;
+    setIsAddingCity(true);
+    try {
+      const docRef = await addDoc(collection(db, "onboarded_cities"), {
+        name: newCityName.trim()
+      });
+      await handleUpdateNested("onboarded_city", newCityName.trim());
+      setNewCityName("");
+      setShowCityForm(false);
+    } catch (error) {
+      console.error("Error adding city:", error);
+    } finally {
+      setIsAddingCity(false);
+    }
+  };
 
   const handleAddPhone = async () => {
     if (!newPhone || !masterData) return;
@@ -512,6 +561,69 @@ const DriverDetailPage: React.FC<DriverDetailPageProps> = ({
                       </span>
                     </div>
                   ))}
+
+                  <div className="pt-4 border-t border-zinc-100 dark:border-zinc-800">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-xs font-bold text-zinc-400">Onboarded City</span>
+                      <button 
+                        onClick={() => setShowCityForm(!showCityForm)}
+                        className="text-[10px] font-black text-indigo-600 uppercase"
+                      >
+                        {showCityForm ? 'Cancel' : 'Change'}
+                      </button>
+                    </div>
+                    
+                    {showCityForm ? (
+                      <div className="space-y-3">
+                        <CustomSelect
+                          placeholder="Select City"
+                          options={[
+                            ...cities.map((c) => ({
+                              value: c.name,
+                              label: c.name,
+                            }))
+                          ]}
+                          value={masterData.onboarded_city || ""}
+                          onChange={async (val) => {
+                            if (val === 'ADD_NEW') {
+                              // We keep showCityForm true and show a sub-input if needed
+                              // But simpler is to allow direct text input here or specialized UI
+                            } else {
+                              await handleUpdateNested("onboarded_city", val);
+                              setShowCityForm(false);
+                            }
+                          }}
+                          searchable
+                        />
+                        
+                        <div className="pt-2">
+                          <p className="text-[10px] font-bold text-zinc-400 uppercase mb-2">Can't find city? Add it:</p>
+                          <div className="flex gap-2">
+                            <input
+                              placeholder="New City Name"
+                              value={newCityName}
+                              onChange={(e) => setNewCityName(e.target.value)}
+                              className="flex-1 px-3 py-2 rounded-xl bg-zinc-50 dark:bg-zinc-950 border border-zinc-100 text-xs font-bold outline-none"
+                            />
+                            <button
+                              onClick={handleAddCity}
+                              disabled={!newCityName.trim() || isAddingCity}
+                              className="px-3 py-2 bg-indigo-600 text-white rounded-xl text-xs font-black disabled:opacity-50"
+                            >
+                              Add
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-2">
+                        <MapPinIcon className="w-4 h-4 text-zinc-300" />
+                        <span className="text-sm font-black text-zinc-800 dark:text-zinc-200">
+                          {masterData.onboarded_city || "Not Set"}
+                        </span>
+                      </div>
+                    )}
+                  </div>
                   
                   <div className="pt-4 border-t border-zinc-100 dark:border-zinc-800">
                     <div className="flex items-center justify-between mb-2">
@@ -703,7 +815,7 @@ const DriverDetailPage: React.FC<DriverDetailPageProps> = ({
                   <PhoneIcon className="w-4 h-4" /> Extra Contacts
                 </h4>
                 <div className="space-y-2 mb-4">
-                  {masterData.additional_phones.map((phone, i) => (
+                  {(masterData.additional_phones || []).map((phone, i) => (
                     <div
                       key={i}
                       className="flex justify-between items-center bg-zinc-50 dark:bg-zinc-800 px-3 py-2 rounded-xl"

@@ -57,11 +57,16 @@ const DriversPage: React.FC<DriversPageProps> = ({ onDriverSelect, isDarkMode, r
   const [statusFilter, setStatusFilter] = useState('all'); 
   const [onboardingFilter, setOnboardingFilter] = useState('Complete'); // Default to Complete
   const [assignedFilter, setAssignedFilter] = useState('all'); 
+  const [cityFilter, setCityFilter] = useState('all');
   const [planFilter, setPlanFilter] = useState('all');
   const [dateFilter, setDateFilter] = useState('all'); 
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
   const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>({ key: 'onboarded_on', direction: 'desc' });
+
+  // Master records map
+  const [masterRecords, setMasterRecords] = useState<Record<string, DriverMasterRecord>>({});
+  const [cities, setCities] = useState<string[]>([]);
 
   // Pagination cursor state
   const [lastVisible, setLastVisible] = useState<any>(null);
@@ -82,20 +87,35 @@ const DriversPage: React.FC<DriversPageProps> = ({ onDriverSelect, isDarkMode, r
       
       let driversData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Driver));
 
+      // Fetch master records
+      const masterSnapshot = await getDocs(collection(db, 'drivers_master'));
+      const masterMap: Record<string, DriverMasterRecord> = {};
+      const uniqueCities = new Set<string>();
+      masterSnapshot.forEach(doc => {
+        const data = doc.data() as DriverMasterRecord;
+        masterMap[doc.id] = data;
+        if (data.onboarded_city) uniqueCities.add(data.onboarded_city);
+      });
+      setMasterRecords(masterMap);
+      setCities(Array.from(uniqueCities).sort());
+
       // Apply filters in memory
       const qStr = searchQuery.toLowerCase();
       driversData = driversData.filter(d => {
+        const master = masterMap[d.driver_id];
         const matchesSearch = !qStr || 
           d.name?.toLowerCase().includes(qStr) || 
           d.driver_id?.toLowerCase().includes(qStr) ||
           d.phone?.includes(qStr) ||
-          (d.vehicle_info?.vehicle_number || d.latest_swap?.vehicle_number || '').toLowerCase().includes(qStr);
+          (d.vehicle_info?.vehicle_number || d.latest_swap?.vehicle_number || '').toLowerCase().includes(qStr) ||
+          (master?.onboarded_city || '').toLowerCase().includes(qStr);
         
         const matchesOnboarding = onboardingFilter === 'all' || d.onboardingStatus === onboardingFilter;
         const matchesStatus = statusFilter === 'all' || (statusFilter === 'active' ? d.is_active : !d.is_active);
         const matchesAssigned = assignedFilter === 'all' || (assignedFilter === 'yes' ? d.assigned : !d.assigned);
+        const matchesCity = cityFilter === 'all' || master?.onboarded_city === cityFilter;
         
-        return matchesSearch && matchesOnboarding && matchesStatus && matchesAssigned;
+        return matchesSearch && matchesOnboarding && matchesStatus && matchesAssigned && matchesCity;
       });
 
       setTotalDatabaseCount(driversData.length);
@@ -209,6 +229,7 @@ const DriversPage: React.FC<DriversPageProps> = ({ onDriverSelect, isDarkMode, r
         'Assigned',
         'Driver Status',
         'Onboarded Date', 
+        'Onboarded City',
         'Last Swap Date', 
         'Onboarding Status', 
         'Unassigned Follow-up',
@@ -293,6 +314,7 @@ const DriversPage: React.FC<DriversPageProps> = ({ onDriverSelect, isDarkMode, r
         const addPhones = master?.additional_phones?.join(', ') || '--';
         const vehicle = d.vehicleData?.[0]?.vehicle_number || d.latest_swap?.vehicle_number || d.vehicle_info?.vehicle_number || '--';
         const onboardDate = formatExcelDate(d.onboarded_on);
+        const onboardCity = master?.onboarded_city || '--';
         const lastSwapDate = formatExcelDate(d.last_swap_date || 0);
         const onbStatus = d.onboardingStatus || 'Pending';
         const primaryReason = master?.status_info?.inactive_primary_reason || (master?.status_info?.inactive_primary_reason === 'Left Service' ? 'Yes' : 'No');
@@ -317,6 +339,7 @@ const DriversPage: React.FC<DriversPageProps> = ({ onDriverSelect, isDarkMode, r
           assigned,
           driverStatus,
           onboardDate,
+          onboardCity,
           lastSwapDate,
           onbStatus,
           followUpCategory,
@@ -472,7 +495,39 @@ const DriversPage: React.FC<DriversPageProps> = ({ onDriverSelect, isDarkMode, r
             <span className="hidden sm:inline">Filters</span>
           </button>
         </div>
-        {showFilters && (<div className="p-6 bg-white dark:bg-zinc-900 rounded-[2rem] border border-zinc-200 dark:border-zinc-800 shadow-lg shadow-zinc-200/50 dark:shadow-none animate-in slide-in-from-top-4 duration-300"><div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4"><CustomSelect label="Driver Status" options={[{ value: 'all', label: 'All Statuses' }, { value: 'active', label: 'Active' }, { value: 'inactive', label: 'Inactive' }]} value={statusFilter} onChange={setStatusFilter} /><CustomSelect label="Onboarding" options={[{ value: 'all', label: 'All' }, { value: 'Complete', label: 'Complete' }, { value: 'Pending', label: 'Pending' }]} value={onboardingFilter} onChange={setOnboardingFilter} /><CustomSelect label="Assigned" options={[{ value: 'all', label: 'All' }, { value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }]} value={assignedFilter} onChange={setAssignedFilter} /><CustomSelect label="Date Joined" options={[{ value: 'all', label: 'Any Time' }, { value: 'today', label: 'Today' }, { value: '7days', label: 'Last 7 Days' }, { value: '30days', label: 'Last 30 Days' }]} value={dateFilter} onChange={setDateFilter} /><CustomSelect label="Plan" options={planOptions} value={planFilter} onChange={setPlanFilter} /><div className="flex items-end"><button onClick={() => { setStatusFilter('all'); setOnboardingFilter('all'); setAssignedFilter('all'); setPlanFilter('all'); setDateFilter('all'); }} className="w-full py-3 rounded-xl bg-zinc-100 dark:bg-zinc-800 text-zinc-500 font-bold text-xs hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-colors">Reset Filters</button></div></div></div>)}
+        {showFilters && (
+          <div className="p-6 bg-white dark:bg-zinc-900 rounded-[2rem] border border-zinc-200 dark:border-zinc-800 shadow-lg shadow-zinc-200/50 dark:shadow-none animate-in slide-in-from-top-4 duration-300">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              <CustomSelect label="Driver Status" options={[{ value: 'all', label: 'All Statuses' }, { value: 'active', label: 'Active' }, { value: 'inactive', label: 'Inactive' }]} value={statusFilter} onChange={setStatusFilter} />
+              <CustomSelect label="Onboarding" options={[{ value: 'all', label: 'All' }, { value: 'Complete', label: 'Complete' }, { value: 'Pending', label: 'Pending' }]} value={onboardingFilter} onChange={setOnboardingFilter} />
+              <CustomSelect label="Assigned" options={[{ value: 'all', label: 'All' }, { value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }]} value={assignedFilter} onChange={setAssignedFilter} />
+              <CustomSelect label="Date Joined" options={[{ value: 'all', label: 'Any Time' }, { value: 'today', label: 'Today' }, { value: '7days', label: 'Last 7 Days' }, { value: '30days', label: 'Last 30 Days' }]} value={dateFilter} onChange={setDateFilter} />
+              <CustomSelect 
+                label="Onboarded City" 
+                options={[{ value: 'all', label: 'All Cities' }, ...cities.map(c => ({ value: c, label: c }))]} 
+                value={cityFilter} 
+                onChange={setCityFilter} 
+                searchable
+              />
+              <CustomSelect label="Plan" options={planOptions} value={planFilter} onChange={setPlanFilter} />
+              <div className="flex items-end">
+                <button 
+                  onClick={() => { 
+                    setStatusFilter('all'); 
+                    setOnboardingFilter('all'); 
+                    setAssignedFilter('all'); 
+                    setPlanFilter('all'); 
+                    setDateFilter('all'); 
+                    setCityFilter('all');
+                  }} 
+                  className="w-full py-3 rounded-xl bg-zinc-100 dark:bg-zinc-800 text-zinc-500 font-bold text-xs hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-colors"
+                >
+                  Reset Filters
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="bg-white dark:bg-zinc-900 rounded-[2rem] border border-zinc-200 dark:border-zinc-800 shadow-sm overflow-hidden flex flex-col">
@@ -484,6 +539,7 @@ const DriversPage: React.FC<DriversPageProps> = ({ onDriverSelect, isDarkMode, r
                 <SortableHeader label="Name" sortKey="name" currentSort={sortConfig as any} onSort={handleSort} className="w-64" />
                 <SortableHeader label="Phone" sortKey="phone" currentSort={sortConfig as any} onSort={handleSort} className="w-40" />
                 <SortableHeader label="Vehicle" sortKey="vehicle_number" currentSort={sortConfig as any} onSort={handleSort} className="w-40" />
+                <SortableHeader label="City" sortKey="onboarded_city" currentSort={sortConfig as any} onSort={handleSort} className="w-40" />
                 <SortableHeader label="Joined" sortKey="onboarded_on" currentSort={sortConfig as any} onSort={handleSort} className="w-40" />
                 <SortableHeader
                   label="Last Swap"
@@ -510,6 +566,7 @@ const DriversPage: React.FC<DriversPageProps> = ({ onDriverSelect, isDarkMode, r
                     <td className="px-6 py-4"><div className="flex items-center gap-3 whitespace-nowrap">{driver.profile_pic ? (<img src={driver.profile_pic} alt="" className="w-8 h-8 rounded-full object-cover shrink-0" />) : (<div className="w-8 h-8 rounded-full bg-indigo-100 dark:bg-indigo-900/30 flex items-center justify-center text-xs font-bold text-indigo-600 dark:text-indigo-400 shrink-0">{driver.name ? driver.name.charAt(0) : '?'}</div>)}<span className="text-xs font-bold text-zinc-700 dark:text-zinc-300 whitespace-nowrap" title={driver.name}>{driver.name || '--'}</span></div></td>
                     <td className="px-6 py-4">{driver.phone ? (<a href={`tel:${driver.phone}`} onClick={(e) => e.stopPropagation()} className="text-xs font-bold text-zinc-500 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors flex items-center gap-2 whitespace-nowrap"><PhoneIcon className="w-3.5 h-3.5 shrink-0" />{driver.phone}</a>) : <span className="text-xs text-zinc-300">--</span>}</td>
                     <td className="px-6 py-4"><span className="text-xs font-bold text-zinc-600 dark:text-zinc-400 whitespace-nowrap">{driver.vehicleData?.[0]?.vehicle_number || driver.latest_swap?.vehicle_number || '--'}</span></td>
+                    <td className="px-6 py-4"><span className="text-xs font-bold text-zinc-600 dark:text-zinc-400 whitespace-nowrap">{masterRecords[driver.driver_id]?.onboarded_city || '--'}</span></td>
                     <td className="px-6 py-4"><div className="flex items-center gap-2 text-xs text-zinc-500 font-bold whitespace-nowrap"><CalendarIcon className="w-3.5 h-3.5 shrink-0" />{formatDate(driver.onboarded_on)}</div></td>
                     <td className="px-6 py-4">
                       <div className="flex items-center gap-2 text-xs text-zinc-500 font-bold whitespace-nowrap">

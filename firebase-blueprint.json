@@ -214,6 +214,7 @@
       "properties": {
         "additional_phones": { "type": "array", "items": { "type": "string" } },
         "onboarding": { "type": "object" },
+        "onboarded_city": { "type": "string" },
         "id_card": { "type": "object" },
         "gift_kit": { "type": "object" },
         "status_info": { "type": "object" },
@@ -222,6 +223,15 @@
         "vehicle_specs": { "type": "object" },
         "agreement_handed_over": { "type": "boolean" }
       }
+    },
+    "OnboardedCity": {
+      "title": "Onboarded City",
+      "description": "List of cities where drivers are onboarded",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" }
+      },
+      "required": ["name"]
     },
     "CashCollection": {
       "title": "Cash Collection",
@@ -309,6 +319,10 @@
     "/drivers_master/{driverId}": {
       "schema": "DriverMasterRecord",
       "description": "Extended driver data managed within the app"
+    },
+    "/onboarded_cities/{cityId}": {
+      "schema": "OnboardedCity",
+      "description": "Collection of cities available for driver onboarding"
     },
     "/swap_stations/{stationId}": {
       "schema": "SwapStation",

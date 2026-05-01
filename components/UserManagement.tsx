@@ -27,10 +27,10 @@ import {
 interface ManagedUser {
   id: string;
   email: string;
-  role: UserRole;
+  roles: UserRole[];
   status: 'Active' | 'Pending';
   invitedAt: string;
-  pin?: string; // 4-digit PIN for handovers
+  pin?: string; 
 }
 
 interface UserManagementProps {
@@ -42,13 +42,14 @@ const UserManagement: React.FC<UserManagementProps> = ({ isDarkMode, db }) => {
   const [users, setUsers] = useState<ManagedUser[]>([]);
   const [loading, setLoading] = useState(true);
   const [inviteEmail, setInviteEmail] = useState('');
-  const [inviteRole, setInviteRole] = useState<UserRole>(UserRole.OPERATOR);
+  const [inviteRoles, setInviteRoles] = useState<UserRole[]>([UserRole.OPERATOR]);
   const [invitePin, setInvitePin] = useState('');
   const [showInviteForm, setShowInviteForm] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [successMsg, setSuccessMsg] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
   const [lastInvitedEmail, setLastInvitedEmail] = useState('');
+  const [editingEmail, setEditingEmail] = useState<string | null>(null);
 
   useEffect(() => {
     const usersQuery = query(collection(db, "users"), orderBy("invitedAt", "desc"));
@@ -79,10 +80,10 @@ const UserManagement: React.FC<UserManagementProps> = ({ isDarkMode, db }) => {
     try {
       const newUserData = {
         email: emailKey,
-        role: inviteRole,
+        roles: inviteRoles,
         pin: invitePin || Math.floor(1000 + Math.random() * 9000).toString(),
-        status: 'Pending',
-        invitedAt: new Date().toISOString()
+        status: editingEmail ? 'Active' : 'Pending',
+        invitedAt: editingEmail ? users.find(u => u.email === editingEmail)?.invitedAt || new Date().toISOString() : new Date().toISOString()
       };
 
       await setDoc(doc(db, "users", emailKey), newUserData, { merge: true });
@@ -90,7 +91,8 @@ const UserManagement: React.FC<UserManagementProps> = ({ isDarkMode, db }) => {
       setLastInvitedEmail(emailKey);
       setInviteEmail('');
       setInvitePin('');
-      setSuccessMsg(`Access granted for ${emailKey}. Notify the user to log in.`);
+      setEditingEmail(null);
+      setSuccessMsg(editingEmail ? `Permissions updated for ${emailKey}.` : `Access granted for ${emailKey}. Notify the user to log in.`);
       setShowInviteForm(false);
     } catch (err: any) {
       console.error("Failed to add user:", err);
@@ -116,7 +118,7 @@ const UserManagement: React.FC<UserManagementProps> = ({ isDarkMode, db }) => {
     const link = getInviteLink();
     const subject = encodeURIComponent("Access Authorized: BD Ops Dashboard");
     const body = encodeURIComponent(
-      `Hello,\n\nYou have been authorized as a ${inviteRole} on the BD Ops Dashboard.\n\nYou can now log in and setup your account using your Google/Gmail account at this link:\n${link}\n\nBest regards,\nOperations Team`
+      `Hello,\n\nYou have been authorized as a ${inviteRoles.join(', ')} on the BD Ops Dashboard.\n\nYou can now log in and setup your account using your Google/Gmail account at this link:\n${link}\n\nBest regards,\nOperations Team`
     );
     window.location.href = `mailto:${email}?subject=${subject}&body=${body}`;
   };
@@ -146,6 +148,10 @@ const UserManagement: React.FC<UserManagementProps> = ({ isDarkMode, db }) => {
         <button 
           onClick={() => {
             setShowInviteForm(!showInviteForm);
+            setEditingEmail(null);
+            setInviteEmail('');
+            setInviteRoles([UserRole.OPERATOR]);
+            setInvitePin('');
             setLastInvitedEmail('');
             setSuccessMsg('');
             setErrorMsg('');
@@ -193,38 +199,60 @@ const UserManagement: React.FC<UserManagementProps> = ({ isDarkMode, db }) => {
 
       {showInviteForm && (
         <div className="bg-white dark:bg-dark-surface p-6 sm:p-8 rounded-[2.5rem] border border-indigo-100 dark:border-indigo-900/30 shadow-xl shadow-indigo-100/10 dark:shadow-none animate-in slide-in-from-top duration-300">
-          <h3 className="text-xl font-bold font-heading mb-2 text-slate-900 dark:text-white">New Permission</h3>
-          <p className="text-sm text-gray-400 dark:text-slate-500 mb-8 font-semibold italic">Unauthorized users will be blocked from access.</p>
+          <h3 className="text-xl font-bold font-heading mb-2 text-slate-900 dark:text-white">
+            {editingEmail ? `Edit Permissions for ${editingEmail}` : 'New Permission'}
+          </h3>
+          <p className="text-sm text-gray-400 dark:text-slate-500 mb-8 font-semibold italic">
+            {editingEmail ? 'Update role assignments and security PIN.' : 'Unauthorized users will be blocked from access.'}
+          </p>
           
           <form onSubmit={handleInvite} className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <div className="space-y-2">
-              <label className="text-xs font-bold text-gray-400 dark:text-slate-500 uppercase tracking-wider ml-1">Gmail Address</label>
-              <div className="relative group">
-                <EnvelopeIcon className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400 group-focus-within:text-indigo-600 transition-colors" />
-                <input 
-                  type="email" 
-                  value={inviteEmail}
-                  onChange={(e) => setInviteEmail(e.target.value)}
-                  placeholder="name@gmail.com"
-                  disabled={isSubmitting}
-                  className="w-full pl-12 pr-4 py-4 bg-gray-50 dark:bg-dark-bg border border-transparent dark:border-dark-border rounded-2xl text-sm focus:bg-white dark:focus:bg-dark-surface focus:ring-4 focus:ring-indigo-50 dark:focus:ring-indigo-900/20 outline-none transition-all dark:text-slate-100"
-                  required
-                />
+            {!editingEmail && (
+              <div className="space-y-2">
+                <label className="text-xs font-bold text-gray-400 dark:text-slate-500 uppercase tracking-wider ml-1">Gmail Address</label>
+                <div className="relative group">
+                  <EnvelopeIcon className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400 group-focus-within:text-indigo-600 transition-colors" />
+                  <input 
+                    type="email" 
+                    value={inviteEmail}
+                    onChange={(e) => setInviteEmail(e.target.value)}
+                    placeholder="name@gmail.com"
+                    disabled={isSubmitting}
+                    className="w-full pl-12 pr-4 py-4 bg-gray-50 dark:bg-dark-bg border border-transparent dark:border-dark-border rounded-2xl text-sm focus:bg-white dark:focus:bg-dark-surface focus:ring-4 focus:ring-indigo-50 dark:focus:ring-indigo-900/20 outline-none transition-all dark:text-slate-100"
+                    required
+                  />
+                </div>
               </div>
-            </div>
-            <div className="space-y-2">
-              <label className="text-xs font-bold text-gray-400 dark:text-slate-500 uppercase tracking-wider ml-1">Access Tier</label>
-              <div className="relative group">
-                <ShieldCheckIcon className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400 group-focus-within:text-indigo-600 transition-colors" />
-                <select 
-                  value={inviteRole}
-                  onChange={(e) => setInviteRole(e.target.value as UserRole)}
-                  disabled={isSubmitting}
-                  className="w-full pl-12 pr-4 py-4 bg-gray-50 dark:bg-dark-bg border border-transparent dark:border-dark-border rounded-2xl text-sm focus:bg-white dark:focus:bg-dark-surface focus:ring-4 focus:ring-indigo-50 dark:focus:ring-indigo-900/20 outline-none transition-all dark:text-slate-100 appearance-none"
-                >
-                  <option value={UserRole.OPERATOR}>Station Operator</option>
-                  <option value={UserRole.ADMIN}>System Admin</option>
-                </select>
+            )}
+            <div className="space-y-4">
+              <label className="text-xs font-bold text-gray-400 dark:text-slate-500 uppercase tracking-wider ml-1">Access Tiers</label>
+              <div className="grid grid-cols-2 gap-3">
+                {[UserRole.ADMIN, UserRole.OPERATOR, UserRole.SUPERVISOR, UserRole.MARKETING_EXECUTIVE, UserRole.TECHNICIAN, UserRole.SUPPORT_EXECUTIVE].map((r) => (
+                  <label key={r} className={`flex items-center gap-3 p-3 rounded-2xl border transition-all cursor-pointer ${
+                    inviteRoles.includes(r) 
+                      ? 'bg-indigo-50 border-indigo-200 text-indigo-700 dark:bg-indigo-900/20 dark:border-indigo-800 dark:text-indigo-400 font-bold' 
+                      : 'bg-gray-50 border-transparent dark:bg-dark-bg dark:border-dark-border text-gray-400'
+                  }`}>
+                    <input 
+                      type="checkbox" 
+                      className="hidden"
+                      checked={inviteRoles.includes(r)}
+                      onChange={() => {
+                        if (inviteRoles.includes(r)) {
+                          setInviteRoles(prev => prev.filter(x => x !== r));
+                        } else {
+                          setInviteRoles(prev => [...prev, r]);
+                        }
+                      }}
+                    />
+                    <div className={`w-5 h-5 rounded-lg border-2 flex items-center justify-center transition-all ${
+                      inviteRoles.includes(r) ? 'bg-indigo-600 border-indigo-600' : 'border-gray-200 dark:border-dark-border'
+                    }`}>
+                      {inviteRoles.includes(r) && <CheckCircleIcon className="w-4 h-4 text-white" />}
+                    </div>
+                    <span className="text-[10px] uppercase tracking-wider">{r}</span>
+                  </label>
+                ))}
               </div>
             </div>
             <div className="space-y-2">
@@ -314,13 +342,22 @@ const UserManagement: React.FC<UserManagementProps> = ({ isDarkMode, db }) => {
                     </div>
                   </td>
                   <td className="px-6 py-4">
-                    <span className={`px-2 py-0.5 rounded-lg text-[10px] font-bold uppercase ${
-                      member.role === UserRole.ADMIN 
-                        ? 'bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300' 
-                        : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400'
-                    }`}>
-                      {member.role}
-                    </span>
+                    <div className="flex flex-wrap gap-1">
+                      {(member.roles || []).map(r => (
+                        <span key={r} className={`px-2 py-0.5 rounded-lg text-[10px] font-bold uppercase ${
+                          r === UserRole.ADMIN 
+                            ? 'bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300' 
+                            : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400'
+                        }`}>
+                          {r}
+                        </span>
+                      ))}
+                      {(!member.roles || member.roles.length === 0) && (member as any).role && (
+                         <span className="px-2 py-0.5 rounded-lg text-[10px] font-bold uppercase bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400">
+                           {(member as any).role}
+                         </span>
+                      )}
+                    </div>
                   </td>
                   <td className="px-6 py-4">
                     <div className="flex items-center gap-2">
@@ -346,6 +383,20 @@ const UserManagement: React.FC<UserManagementProps> = ({ isDarkMode, db }) => {
                   </td>
                   <td className="px-6 py-4 text-right">
                     <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <button 
+                         onClick={() => {
+                           setEditingEmail(member.email);
+                           setInviteEmail(member.email);
+                           setInviteRoles(member.roles || [(member as any).role].filter(Boolean));
+                           setInvitePin(member.pin || '');
+                           setShowInviteForm(true);
+                           window.scrollTo({ top: 0, behavior: 'smooth' });
+                         }}
+                         className="p-1.5 text-gray-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-white dark:hover:bg-dark-surface rounded-lg transition-all"
+                         title="Edit User"
+                      >
+                        <ShieldCheckIcon className="w-4 h-4" />
+                      </button>
                       <button 
                         onClick={() => sendInviteEmail(member.email)}
                         className="p-1.5 text-gray-400 hover:text-green-600 dark:hover:text-green-400 hover:bg-white dark:hover:bg-dark-surface rounded-lg transition-all"

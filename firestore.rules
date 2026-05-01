@@ -58,6 +58,12 @@ service cloud.firestore {
       allow write: if isAuthenticated();
     }
 
+    match /onboarded_cities/{cityId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated();
+      allow update, delete: if isAdmin();
+    }
+
     match /id_card_handovers/{requestId} {
       allow read, write: if isAdmin();
     }

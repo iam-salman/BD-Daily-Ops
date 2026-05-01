@@ -27,7 +27,7 @@ export const useAuth = () => {
           
           if (userDoc.exists()) {
             const userData = userDoc.data();
-            assignedRole = userData.role as UserRole;
+            assignedRole = (userData.roles && userData.roles.length > 0) ? userData.roles[0] : (userData.role as UserRole);
             profileName = userData.name || currentUser.displayName || '';
             
             // Sync status and UID if needed
